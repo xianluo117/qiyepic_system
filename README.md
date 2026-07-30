@@ -28,6 +28,35 @@
 - 进程管理：systemd；
 - 部署方式：Linux 原生部署，不使用 Docker。
 
+## 依赖安装
+
+后端生产依赖：
+
+```text
+cd backend
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+```
+
+Linux 中激活虚拟环境后执行：
+
+```text
+python -m pip install -r requirements.txt
+```
+
+需要运行测试和代码检查时安装开发依赖：
+
+```text
+python -m pip install -r requirements-dev.txt
+```
+
+前端依赖由 `frontend/package.json` 和 `frontend/package-lock.json` 管理：
+
+```text
+cd frontend
+npm ci
+```
+
 ## 项目结构
 
 ```text
@@ -36,7 +65,6 @@ image-system/
 ├── frontend/                # Vue 3 Web 前端
 ├── deploy/                  # Nginx 与 systemd 配置
 ├── docs/                    # 项目说明文档
-├── scripts/                 # 初始化和部署辅助脚本
 ├── .env.example             # 环境变量示例
 └── README.md
 ```
@@ -75,4 +103,4 @@ image-system/
 
 ## 当前状态
 
-项目骨架正在建立中。详细设计见工作区中的整体方案文档。
+登录、员工管理、图片上传、裁剪放大、图库管理、Linux 部署模板及自动化测试已经实现。详细运行步骤见 `docs/运行说明.md`。

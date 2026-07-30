@@ -1,0 +1,19 @@
+[Unit]
+Description=Image System FastAPI
+After=network.target mysql.service redis-server.service
+Wants=mysql.service redis-server.service
+
+[Service]
+Type=simple
+User=image-system
+Group=image-system
+WorkingDirectory=/opt/image-system/backend
+EnvironmentFile=/opt/image-system/config/backend.env
+ExecStart=/opt/image-system/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 1231 --workers 2
+Restart=on-failure
+RestartSec=5
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

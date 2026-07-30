@@ -1,0 +1,109 @@
+name: qiye-image-system
+
+x-app-environment: &app-environment
+  APP_NAME: ${APP_NAME:-简易图床系统}
+  APP_ENV: ${APP_ENV:-production}
+  DEBUG: ${DEBUG:-false}
+  API_PREFIX: ${API_PREFIX:-/api}
+  SECRET_KEY: ${SECRET_KEY:?请在根目录 .env 中配置 SECRET_KEY}
+  ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-480}
+  DATABASE_URL_OVERRIDE: ''
+  MYSQL_HOST: mysql
+  MYSQL_PORT: 3306
+  MYSQL_DATABASE: ${MYSQL_DATABASE:-image_system}
+  MYSQL_USER: ${MYSQL_USER:-image_system}
+  MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请在根目录 .env 中配置 MYSQL_PASSWORD}
+  REDIS_URL: redis://redis:6379/0
+  TASK_ALWAYS_EAGER: 'false'
+  IMAGE_ROOT: /data/image-system
+  MAX_UPLOAD_SIZE_MB: ${MAX_UPLOAD_SIZE_MB:-30}
+  BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:?请配置管理员用户名}
+  BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?请配置至少 12 位管理员密码}
+  BOOTSTRAP_ADMIN_EMPLOYEE_ID: ${BOOTSTRAP_ADMIN_EMPLOYEE_ID:-ADMIN}
+
+x-app-service: &app-service
+  image: ${APP_IMAGE:-qingmiaoai/qiyeimagesystem:latest}
+  build:
+    context: .
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  environment: *app-environment
+  volumes:
+    - ${IMAGE_DATA_PATH:-./data/images}:/data/image-system
+  depends_on:
+    mysql:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+services:
+  web:
+    <<: *app-service
+    command: ['web']
+    ports:
+      - '${WEB_PORT:-1230}:80'
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api:
+    <<: *app-service
+    command: ['api']
+    expose:
+      - '1231'
+    environment:
+      <<: *app-environment
+      API_WORKERS: ${API_WORKERS:-2}
+    healthcheck:
+      test: ['CMD', 'curl', '--fail', 'http://127.0.0.1:1231/health']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  worker:
+    <<: *app-service
+    command: ['worker']
+    user: '10001:10001'
+    environment:
+      <<: *app-environment
+      CELERY_CONCURRENCY: ${CELERY_CONCURRENCY:-2}
+      CELERY_LOG_LEVEL: ${CELERY_LOG_LEVEL:-INFO}
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-image_system}
+      MYSQL_USER: ${MYSQL_USER:-image_system}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?请在根目录 .env 中配置 MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?请在根目录 .env 中配置 MYSQL_ROOT_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mysql-data:
+  redis-data:

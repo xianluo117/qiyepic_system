@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.api.router import api_router
 from app.core.config import settings
@@ -31,7 +32,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                     is_active=True,
                 ),
             )
-            db.commit()
+            try:
+                db.commit()
+            except IntegrityError:
+                # 多个 Uvicorn Worker 首次并行启动时，只有一个负责创建管理员。
+                db.rollback()
 
     yield
 

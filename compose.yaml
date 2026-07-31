@@ -64,7 +64,6 @@ services:
   worker:
     <<: *app-service
     command: ['worker']
-    user: '10001:10001'
     environment:
       <<: *app-environment
       CELERY_CONCURRENCY: ${CELERY_CONCURRENCY:-2}

@@ -16,7 +16,7 @@ async function submit(): Promise<void> {
   try {
     await auth.login(form.username, form.password);
     ElMessage.success("登录成功");
-    await router.replace("/gallery");
+    await router.replace(auth.isAdmin.value ? "/admin/images" : "/gallery");
   } catch (error) {
     ElMessage.error(getApiError(error));
   } finally {

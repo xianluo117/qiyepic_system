@@ -29,6 +29,7 @@ COPY deploy/docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=frontend-builder /build/frontend/dist/ /usr/share/nginx/html/
 
 RUN mkdir -p /data/image-system \
+    && sed -i '1s/^[[:space:]]*#!\/bin\/sh/#!\/bin\/sh/' /app/backend/docker-entrypoint.sh \
     && sed -i 's/\r$//' /app/backend/docker-entrypoint.sh \
     && chmod +x /app/backend/docker-entrypoint.sh \
     && chown -R app:app /app /data/image-system

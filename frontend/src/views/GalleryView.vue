@@ -83,7 +83,20 @@ onMounted(loadImages);
 
 <template>
   <section class="page-card">
-    <h1 class="page-title">图库</h1>
+    <div class="page-heading">
+      <div>
+        <h1 class="page-title">
+          {{ auth.isAdmin.value ? "全部图片" : "我的图库" }}
+        </h1>
+        <p class="page-description">
+          {{
+            auth.isAdmin.value
+              ? "查看并管理所有员工上传的图片。"
+              : "仅显示当前账号上传的图片。"
+          }}
+        </p>
+      </div>
+    </div>
     <el-form inline>
       <el-form-item label="员工 ID" v-if="auth.isAdmin.value"
         ><el-input v-model="filters.employee_id" clearable
@@ -121,7 +134,29 @@ onMounted(loadImages);
           >{{ row.target_ratio_width }}:{{ row.target_ratio_height }}</template
         ></el-table-column
       >
-      <el-table-column prop="status" label="状态" width="100" />
+      <el-table-column label="状态" width="110">
+        <template #default="{ row }">
+          <el-tag
+            :type="
+              row.status === 'success'
+                ? 'success'
+                : row.status === 'failed'
+                  ? 'danger'
+                  : 'info'
+            "
+          >
+            {{
+              row.status === "pending"
+                ? "待处理"
+                : row.status === "processing"
+                  ? "处理中"
+                  : row.status === "success"
+                    ? "成功"
+                    : "失败"
+            }}
+          </el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="尺寸" width="170"
         ><template #default="{ row }"
           >{{ row.processed_width ?? "-" }} ×
@@ -146,6 +181,13 @@ onMounted(loadImages);
             type="warning"
             @click="retry(row.id)"
             >重试</el-button
+          >
+          <el-button
+            v-if="row.status === 'failed' && row.error_message"
+            link
+            type="danger"
+            @click="ElMessageBox.alert(row.error_message, '处理失败原因')"
+            >原因</el-button
           >
           <el-button link type="danger" @click="remove(row.id)">删除</el-button>
         </template>

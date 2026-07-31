@@ -14,8 +14,10 @@ from app.api.dependencies import get_current_user
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.image import Image, ImageStatus
+from app.models.operation_log import LogCategory, LogStatus
 from app.models.user import User, UserRole
 from app.schemas.image import ImageResponse, UploadFileResult, UploadResponse
+from app.services.audit import add_operation_log
 from app.storage.local import LocalStorage
 from worker.tasks.image_tasks import process_image
 
@@ -41,6 +43,13 @@ def _validate_sku(sku: str) -> str:
     if len(value) > 128:
         raise ValueError("货号长度不能超过 128 个字符")
     return value
+
+
+def _remove_incomplete_processed_file(key: str) -> None:
+    """重试前清理可能由旧任务留下的未完成处理图。"""
+    path = _storage.get_local_path(key)
+    path.unlink(missing_ok=True)
+    path.with_name(f".{path.name}.processing").unlink(missing_ok=True)
 
 
 def _check_image(content: bytes) -> tuple[str, int, int]:
@@ -147,10 +156,38 @@ def upload_images(
                 status=ImageStatus.PENDING,
             )
             db.add(image)
+            db.flush()
+            add_operation_log(
+                db,
+                category=LogCategory.IMAGE,
+                action="upload_image",
+                status=LogStatus.SUCCESS,
+                actor=current_user,
+                image_id=image.id,
+                target=f"{safe_sku}/{filename}",
+                message=f"上传图片 {filename}",
+                details=f"ratio={ratio_width}:{ratio_height}, min_short_side={min_short_side_px}",
+            )
             db.commit()
             db.refresh(image)
 
-            process_image.delay(image.id)
+            try:
+                process_image.delay(image.id)
+            except Exception as exc:
+                image.status = ImageStatus.FAILED
+                image.error_message = f"处理任务提交失败: {exc}"[:2000]
+                add_operation_log(
+                    db,
+                    category=LogCategory.PROCESSING,
+                    action="enqueue_image",
+                    status=LogStatus.FAILED,
+                    actor=current_user,
+                    image_id=image.id,
+                    target=f"{safe_sku}/{filename}",
+                    message="图片已保存，但无法提交处理任务",
+                    details=str(exc),
+                )
+                db.commit()
             db.refresh(image)
             results.append(
                 UploadFileResult(
@@ -230,10 +267,47 @@ def retry_image(
     image = _get_accessible_image(image_id, current_user, db)
     if image.status in {ImageStatus.PENDING, ImageStatus.PROCESSING}:
         raise HTTPException(status_code=409, detail="图片任务正在处理中")
+    processed_key = _storage.build_key(
+        image.employee_id,
+        "processed",
+        image.sku,
+        image.original_filename,
+    )
+    _remove_incomplete_processed_file(processed_key)
+    image.processed_path = None
+    image.processed_width = None
+    image.processed_height = None
+    image.processed_at = None
     image.status = ImageStatus.PENDING
     image.error_message = None
+    add_operation_log(
+        db,
+        category=LogCategory.PROCESSING,
+        action="retry_image",
+        status=LogStatus.INFO,
+        actor=current_user,
+        image_id=image.id,
+        target=f"{image.sku}/{image.original_filename}",
+        message=f"重新提交图片处理任务 {image.original_filename}",
+    )
     db.commit()
-    process_image.delay(image.id)
+    try:
+        process_image.delay(image.id)
+    except Exception as exc:
+        image.status = ImageStatus.FAILED
+        image.error_message = f"处理任务提交失败: {exc}"[:2000]
+        add_operation_log(
+            db,
+            category=LogCategory.PROCESSING,
+            action="enqueue_image",
+            status=LogStatus.FAILED,
+            actor=current_user,
+            image_id=image.id,
+            target=f"{image.sku}/{image.original_filename}",
+            message="无法提交图片重试任务",
+            details=str(exc),
+        )
+        db.commit()
     db.refresh(image)
     return image
 
@@ -247,6 +321,16 @@ def delete_image(
     image = _get_accessible_image(image_id, current_user, db)
     original_path = image.original_path
     processed_path = image.processed_path
+    add_operation_log(
+        db,
+        category=LogCategory.IMAGE,
+        action="delete_image",
+        status=LogStatus.SUCCESS,
+        actor=current_user,
+        employee_id=image.employee_id,
+        target=f"{image.sku}/{image.original_filename}",
+        message=f"删除图片 {image.original_filename}",
+    )
     db.delete(image)
     db.commit()
     _storage.delete(original_path)

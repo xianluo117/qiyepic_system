@@ -1,7 +1,9 @@
 import { createRouter, createWebHistory } from "vue-router";
 
-import AppLayout from "@/layouts/AppLayout.vue";
+import AdminLayout from "@/layouts/AdminLayout.vue";
+import EmployeeLayout from "@/layouts/EmployeeLayout.vue";
 import { useAuth } from "@/stores/auth";
+import AdminLogsView from "@/views/AdminLogsView.vue";
 import GalleryView from "@/views/GalleryView.vue";
 import LoginView from "@/views/LoginView.vue";
 import UploadView from "@/views/UploadView.vue";
@@ -13,18 +15,23 @@ const router = createRouter({
     { path: "/login", name: "login", component: LoginView },
     {
       path: "/",
-      component: AppLayout,
-      meta: { requiresAuth: true },
+      component: EmployeeLayout,
+      meta: { requiresAuth: true, employeeOnly: true },
       children: [
         { path: "", redirect: "/gallery" },
         { path: "gallery", name: "gallery", component: GalleryView },
         { path: "upload", name: "upload", component: UploadView },
-        {
-          path: "users",
-          name: "users",
-          component: UsersView,
-          meta: { adminOnly: true },
-        },
+      ],
+    },
+    {
+      path: "/admin",
+      component: AdminLayout,
+      meta: { requiresAuth: true, adminOnly: true },
+      children: [
+        { path: "", redirect: "/admin/images" },
+        { path: "images", name: "admin-images", component: GalleryView },
+        { path: "users", name: "admin-users", component: UsersView },
+        { path: "logs", name: "admin-logs", component: AdminLogsView },
       ],
     },
   ],
@@ -42,7 +49,10 @@ router.beforeEach(async (to) => {
     }
   }
   if (to.meta.adminOnly && !auth.isAdmin.value) return "/gallery";
-  if (to.path === "/login" && auth.isLoggedIn.value) return "/gallery";
+  if (to.meta.employeeOnly && auth.isAdmin.value) return "/admin/images";
+  if (to.path === "/login" && auth.isLoggedIn.value) {
+    return auth.isAdmin.value ? "/admin/images" : "/gallery";
+  }
   return true;
 });
 

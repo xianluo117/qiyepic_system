@@ -31,6 +31,23 @@ export interface ImageItem {
   processed_at: string | null;
 }
 
+export type LogCategory = "auth" | "user" | "image" | "processing";
+export type LogStatus = "success" | "failed" | "info";
+
+export interface OperationLog {
+  id: number;
+  category: LogCategory;
+  action: string;
+  status: LogStatus;
+  actor_username: string | null;
+  employee_id: string | null;
+  image_id: number | null;
+  target: string | null;
+  message: string;
+  details: string | null;
+  created_at: string;
+}
+
 export interface UploadFileResult {
   filename: string;
   success: boolean;

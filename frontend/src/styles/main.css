@@ -59,6 +59,48 @@ body {
 }
 
 .page-title {
-  margin: 0 0 20px;
+  margin: 0;
   font-size: 22px;
+}
+
+.page-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.page-description {
+  margin: 8px 0 0;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.header-role {
+  margin-left: 10px;
+}
+
+.admin-sidebar {
+  background: #111827;
+  color: #ffffff;
+}
+
+.admin-sidebar .brand {
+  color: #ffffff;
+}
+
+.admin-sidebar .el-menu {
+  border-right: 0;
+  background: transparent;
+}
+
+.admin-sidebar .el-menu-item {
+  color: #d1d5db;
+}
+
+.admin-sidebar .el-menu-item:hover,
+.admin-sidebar .el-menu-item.is-active {
+  color: #ffffff;
+  background: #374151;
 }

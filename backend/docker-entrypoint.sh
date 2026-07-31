@@ -1,4 +1,4 @@
-#!/bin/sh
+ #!/bin/sh
 set -eu
 
 wait_for_database() {

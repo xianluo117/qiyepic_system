@@ -14,7 +14,7 @@ onMounted(async () => {
 
 async function logout(): Promise<void> {
   auth.logout();
-  await router.replace("/login");
+  await router.replace("/");
 }
 </script>
 

@@ -9,48 +9,89 @@ import LoginView from "@/views/LoginView.vue";
 import UploadView from "@/views/UploadView.vue";
 import UsersView from "@/views/UsersView.vue";
 
+const employeeRoutes = [
+  {
+    path: "/gallery",
+    name: "gallery",
+    component: EmployeeLayout,
+    meta: { requiresAuth: true, employeeOnly: true },
+    children: [{ path: "", component: GalleryView }],
+  },
+  {
+    path: "/upload",
+    name: "upload",
+    component: EmployeeLayout,
+    meta: { requiresAuth: true, employeeOnly: true },
+    children: [{ path: "", component: UploadView }],
+  },
+];
+
+const adminRoutes = [
+  {
+    path: "/admin/images",
+    name: "admin-images",
+    component: AdminLayout,
+    meta: { requiresAuth: true, adminOnly: true },
+    children: [{ path: "", component: GalleryView }],
+  },
+  {
+    path: "/admin/users",
+    name: "admin-users",
+    component: AdminLayout,
+    meta: { requiresAuth: true, adminOnly: true },
+    children: [{ path: "", component: UsersView }],
+  },
+  {
+    path: "/admin/logs",
+    name: "admin-logs",
+    component: AdminLayout,
+    meta: { requiresAuth: true, adminOnly: true },
+    children: [{ path: "", component: AdminLogsView }],
+  },
+];
+
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: "/login", name: "login", component: LoginView },
     {
       path: "/",
-      component: EmployeeLayout,
-      meta: { requiresAuth: true, employeeOnly: true },
-      children: [
-        { path: "", redirect: "/gallery" },
-        { path: "gallery", name: "gallery", component: GalleryView },
-        { path: "upload", name: "upload", component: UploadView },
-      ],
+      name: "employee-login",
+      component: LoginView,
+      props: { portal: "employee" },
     },
     {
       path: "/admin",
-      component: AdminLayout,
-      meta: { requiresAuth: true, adminOnly: true },
-      children: [
-        { path: "", redirect: "/admin/images" },
-        { path: "images", name: "admin-images", component: GalleryView },
-        { path: "users", name: "admin-users", component: UsersView },
-        { path: "logs", name: "admin-logs", component: AdminLogsView },
-      ],
+      name: "admin-login",
+      component: LoginView,
+      props: { portal: "admin" },
     },
+    { path: "/login", redirect: "/" },
+    ...employeeRoutes,
+    ...adminRoutes,
+    { path: "/:pathMatch(.*)*", redirect: "/" },
   ],
 });
 
 router.beforeEach(async (to) => {
   const auth = useAuth();
-  if (to.meta.requiresAuth && !auth.isLoggedIn.value) return "/login";
+  const isAdminPortal = to.path.startsWith("/admin");
+  const loginPath = isAdminPortal ? "/admin" : "/";
+
+  if (to.meta.requiresAuth && !auth.isLoggedIn.value) return loginPath;
   if (auth.isLoggedIn.value && !auth.user.value) {
     try {
       await auth.loadCurrentUser();
     } catch {
       auth.logout();
-      return "/login";
+      return loginPath;
     }
   }
   if (to.meta.adminOnly && !auth.isAdmin.value) return "/gallery";
   if (to.meta.employeeOnly && auth.isAdmin.value) return "/admin/images";
-  if (to.path === "/login" && auth.isLoggedIn.value) {
+  if (to.name === "admin-login" && auth.isLoggedIn.value) {
+    return auth.isAdmin.value ? "/admin/images" : "/gallery";
+  }
+  if (to.name === "employee-login" && auth.isLoggedIn.value) {
     return auth.isAdmin.value ? "/admin/images" : "/gallery";
   }
   return true;

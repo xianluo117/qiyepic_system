@@ -1,14 +1,21 @@
 <script setup lang="ts">
+import { Picture } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
-import { onMounted, reactive, ref } from "vue";
+import { onBeforeUnmount, onMounted, reactive, ref } from "vue";
 
 import { apiClient, getApiError } from "@/services/api";
 import { useAuth } from "@/stores/auth";
 import type { ImageItem, ImageStatus } from "@/types";
 
+type PreviewKind = "original" | "processed";
+
 const auth = useAuth();
 const loading = ref(false);
 const images = ref<ImageItem[]>([]);
+const previewVisible = ref(false);
+const previewLoading = ref(false);
+const previewUrl = ref("");
+const previewTitle = ref("");
 const filters = reactive<{
   sku: string;
   filename: string;
@@ -36,15 +43,43 @@ async function loadImages(): Promise<void> {
   }
 }
 
-async function download(
-  item: ImageItem,
-  kind: "original" | "processed",
-): Promise<void> {
+async function getImageBlob(item: ImageItem, kind: PreviewKind): Promise<Blob> {
+  const { data } = await apiClient.get(`/images/${item.id}/file/${kind}`, {
+    responseType: "blob",
+  });
+  return data as Blob;
+}
+
+function clearPreviewUrl(): void {
+  if (previewUrl.value) {
+    URL.revokeObjectURL(previewUrl.value);
+    previewUrl.value = "";
+  }
+}
+
+async function preview(item: ImageItem, kind: PreviewKind): Promise<void> {
+  previewVisible.value = true;
+  previewLoading.value = true;
+  previewTitle.value = `${kind === "original" ? "原图" : "处理图"} · ${item.original_filename}`;
+  clearPreviewUrl();
   try {
-    const { data } = await apiClient.get(`/images/${item.id}/file/${kind}`, {
-      responseType: "blob",
-    });
-    const url = URL.createObjectURL(data as Blob);
+    previewUrl.value = URL.createObjectURL(await getImageBlob(item, kind));
+  } catch (error) {
+    previewVisible.value = false;
+    ElMessage.error(getApiError(error));
+  } finally {
+    previewLoading.value = false;
+  }
+}
+
+function closePreview(): void {
+  previewVisible.value = false;
+  clearPreviewUrl();
+}
+
+async function download(item: ImageItem, kind: PreviewKind): Promise<void> {
+  try {
+    const url = URL.createObjectURL(await getImageBlob(item, kind));
     const link = document.createElement("a");
     link.href = url;
     link.download = item.original_filename;
@@ -79,6 +114,7 @@ async function remove(id: number): Promise<void> {
 }
 
 onMounted(loadImages);
+onBeforeUnmount(clearPreviewUrl);
 </script>
 
 <template>
@@ -122,6 +158,20 @@ onMounted(loadImages);
       <el-button type="primary" @click="loadImages">查询</el-button>
     </el-form>
     <el-table :data="images" v-loading="loading">
+      <el-table-column label="预览" width="112">
+        <template #default="{ row }">
+          <button
+            class="thumbnail-button"
+            type="button"
+            title="预览图片"
+            @click="
+              preview(row, row.status === 'success' ? 'processed' : 'original')
+            "
+          >
+            <el-icon :size="24"><Picture /></el-icon>
+          </button>
+        </template>
+      </el-table-column>
       <el-table-column prop="employee_id" label="员工" width="110" />
       <el-table-column prop="sku" label="货号" width="150" />
       <el-table-column
@@ -163,18 +213,35 @@ onMounted(loadImages);
           {{ row.processed_height ?? "-" }}</template
         ></el-table-column
       >
-      <el-table-column label="操作" width="300" fixed="right">
+      <el-table-column label="操作" width="390" fixed="right">
         <template #default="{ row }">
-          <el-button link type="primary" @click="download(row, 'original')"
-            >原图</el-button
+          <el-button link type="primary" @click="preview(row, 'original')"
+            >预览原图</el-button
           >
           <el-button
             link
             type="primary"
             :disabled="row.status !== 'success'"
-            @click="download(row, 'processed')"
-            >处理图</el-button
+            @click="preview(row, 'processed')"
+            >预览处理图</el-button
           >
+          <el-dropdown trigger="click">
+            <el-button link type="primary" class="download-button"
+              >下载</el-button
+            >
+            <template #dropdown>
+              <el-dropdown-menu>
+                <el-dropdown-item @click="download(row, 'original')"
+                  >下载原图</el-dropdown-item
+                >
+                <el-dropdown-item
+                  :disabled="row.status !== 'success'"
+                  @click="download(row, 'processed')"
+                  >下载处理图</el-dropdown-item
+                >
+              </el-dropdown-menu>
+            </template>
+          </el-dropdown>
           <el-button
             v-if="row.status === 'failed'"
             link
@@ -194,5 +261,56 @@ onMounted(loadImages);
       </el-table-column>
     </el-table>
     <el-empty v-if="!loading && images.length === 0" description="暂无图片" />
+
+    <el-dialog
+      v-model="previewVisible"
+      :title="previewTitle"
+      width="min(92vw, 1100px)"
+      destroy-on-close
+      @closed="closePreview"
+    >
+      <div v-loading="previewLoading" class="preview-stage">
+        <img v-if="previewUrl" :src="previewUrl" :alt="previewTitle" />
+      </div>
+    </el-dialog>
   </section>
 </template>
+
+<style scoped>
+.thumbnail-button {
+  width: 72px;
+  height: 54px;
+  display: grid;
+  place-items: center;
+  color: #409eff;
+  background: #f0f7ff;
+  border: 1px solid #d9ecff;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.thumbnail-button:hover {
+  color: #ffffff;
+  background: #409eff;
+}
+
+.download-button {
+  margin-left: 12px;
+}
+
+.preview-stage {
+  min-height: 360px;
+  display: grid;
+  place-items: center;
+  overflow: auto;
+  background: #f5f7fa;
+  border-radius: 6px;
+}
+
+.preview-stage img {
+  display: block;
+  max-width: 100%;
+  max-height: 72vh;
+  object-fit: contain;
+}
+</style>

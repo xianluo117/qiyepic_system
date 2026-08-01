@@ -162,7 +162,7 @@ function toggleSelected(id: number, checked: boolean): void {
   selectionAnchorId.value = id;
 }
 
-function selectRange(targetId: number): void {
+function selectRange(targetId: number, selected: boolean): void {
   const anchorId =
     selectionAnchorId.value ?? selectedImage.value?.id ?? targetId;
   const anchorIndex = images.value.findIndex((item) => item.id === anchorId);
@@ -172,15 +172,19 @@ function selectRange(targetId: number): void {
   const start = Math.min(anchorIndex, targetIndex);
   const end = Math.max(anchorIndex, targetIndex);
   const next = new Set(selectedIds.value);
-  for (const item of images.value.slice(start, end + 1)) next.add(item.id);
+  for (const item of images.value.slice(start, end + 1)) {
+    if (selected) next.add(item.id);
+    else next.delete(item.id);
+  }
   selectedIds.value = next;
 }
 
 function handleCardClick(event: MouseEvent, item: ImageItem): void {
+  const modifierKey = event.ctrlKey || event.metaKey;
   if (event.shiftKey) {
     event.preventDefault();
-    selectRange(item.id);
-  } else if (event.ctrlKey || event.metaKey) {
+    selectRange(item.id, !modifierKey);
+  } else if (modifierKey) {
     event.preventDefault();
     toggleSelected(item.id, !selectedIds.value.has(item.id));
   } else {
@@ -193,7 +197,7 @@ function handleCheckboxClick(event: MouseEvent, item: ImageItem): void {
   if (!event.shiftKey) return;
   event.preventDefault();
   event.stopPropagation();
-  selectRange(item.id);
+  selectRange(item.id, !(event.ctrlKey || event.metaKey));
   selectImage(item);
 }
 
@@ -376,7 +380,7 @@ onMounted(loadImages);
             active: selectedImage?.id === item.id,
             selected: selectedIds.has(item.id),
           }"
-          title="单击预览；Ctrl/Cmd 单击多选；Shift 单击连续选择"
+          title="单击预览；Ctrl/Cmd 单击切换单张选择；Shift 连续选择；Ctrl/Cmd + Shift 连续取消"
           @click="handleCardClick($event, item)"
         >
           <el-checkbox

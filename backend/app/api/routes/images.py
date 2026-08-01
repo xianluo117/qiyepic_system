@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import FileResponse
 from PIL import Image as PillowImage
 from PIL import UnidentifiedImageError
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -16,7 +16,7 @@ from app.core.database import get_db
 from app.models.image import Image, ImageStatus
 from app.models.operation_log import LogCategory, LogStatus
 from app.models.user import User, UserRole
-from app.schemas.image import ImageResponse, UploadFileResult, UploadResponse
+from app.schemas.image import ImagePageResponse, ImageResponse, UploadFileResult, UploadResponse
 from app.services.audit import add_operation_log
 from app.storage.local import LocalStorage
 from worker.tasks.image_tasks import process_image
@@ -76,16 +76,18 @@ def _get_accessible_image(image_id: int, user: User, db: Session) -> Image:
     return image
 
 
-@router.get("", response_model=list[ImageResponse])
+@router.get("", response_model=ImagePageResponse)
 def list_images(
     sku: str | None = None,
     filename: str | None = None,
     image_status: ImageStatus | None = Query(default=None, alias="status"),
     employee_id: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> list[Image]:
-    query = select(Image).order_by(Image.created_at.desc())
+) -> ImagePageResponse:
+    query = select(Image)
     if current_user.role != UserRole.ADMIN:
         query = query.where(Image.owner_id == current_user.id)
     elif employee_id:
@@ -96,7 +98,19 @@ def list_images(
         query = query.where(Image.original_filename.contains(filename.strip()))
     if image_status:
         query = query.where(Image.status == image_status)
-    return list(db.scalars(query).all())
+
+    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    page_query = (
+        query.order_by(Image.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    return ImagePageResponse(
+        items=list(db.scalars(page_query).all()),
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.post("/upload", response_model=UploadResponse)

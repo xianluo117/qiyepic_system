@@ -32,6 +32,13 @@ export interface ImageItem {
   processed_at: string | null;
 }
 
+export interface ImagePage {
+  items: ImageItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 export type LogCategory = "auth" | "user" | "image" | "processing";
 export type LogStatus = "success" | "failed" | "info";
 

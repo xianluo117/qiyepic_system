@@ -4,13 +4,16 @@ import { computed, onMounted, reactive, ref } from "vue";
 
 import { apiClient, getApiError } from "@/services/api";
 import { useAuth } from "@/stores/auth";
-import type { ImageItem, ImageStatus } from "@/types";
+import type { ImageItem, ImagePage, ImageStatus } from "@/types";
 
 type ImageKind = "original" | "processed";
 
 const auth = useAuth();
 const loading = ref(false);
 const images = ref<ImageItem[]>([]);
+const totalImages = ref(0);
+const currentPage = ref(1);
+const pageSize = ref(50);
 const selectedImage = ref<ImageItem | null>(null);
 const selectedIds = ref<Set<number>>(new Set());
 const selectionAnchorId = ref<number | null>(null);
@@ -73,21 +76,46 @@ function resetSelectionForVisibleImages(): void {
 async function loadImages(): Promise<void> {
   loading.value = true;
   try {
-    const params = Object.fromEntries(
-      Object.entries(filters).filter(([, value]) => value),
-    );
-    const { data } = await apiClient.get<ImageItem[]>("/images", { params });
-    images.value = data;
+    const params = {
+      ...Object.fromEntries(
+        Object.entries(filters).filter(([, value]) => value),
+      ),
+      page: currentPage.value,
+      page_size: pageSize.value,
+    };
+    const { data } = await apiClient.get<ImagePage>("/images", { params });
+    images.value = data.items;
+    totalImages.value = data.total;
     resetSelectionForVisibleImages();
     const current = selectedImage.value
-      ? data.find((item) => item.id === selectedImage.value?.id)
+      ? data.items.find((item) => item.id === selectedImage.value?.id)
       : null;
-    selectImage(current ?? data[0] ?? null);
+    selectImage(current ?? data.items[0] ?? null);
   } catch (error) {
     ElMessage.error(getApiError(error));
   } finally {
     loading.value = false;
   }
+}
+
+async function submitFilters(): Promise<void> {
+  currentPage.value = 1;
+  await loadImages();
+}
+
+async function changePage(page: number): Promise<void> {
+  currentPage.value = page;
+  selectedIds.value = new Set<number>();
+  selectionAnchorId.value = null;
+  await loadImages();
+}
+
+async function changePageSize(size: number): Promise<void> {
+  pageSize.value = size;
+  currentPage.value = 1;
+  selectedIds.value = new Set<number>();
+  selectionAnchorId.value = null;
+  await loadImages();
 }
 
 function selectImage(item: ImageItem | null): void {
@@ -279,7 +307,7 @@ onMounted(loadImages);
           <h1 class="page-title">
             {{ auth.isAdmin.value ? "全部图片" : "我的图库" }}
           </h1>
-          <p>{{ images.length }} 张图片</p>
+          <p>共 {{ totalImages }} 张图片</p>
         </div>
       </div>
 
@@ -304,7 +332,7 @@ onMounted(loadImages);
               <el-option label="失败" value="failed" />
             </el-select>
           </el-form-item>
-          <el-button type="primary" :loading="loading" @click="loadImages"
+          <el-button type="primary" :loading="loading" @click="submitFilters"
             >查询</el-button
           >
         </div>
@@ -379,6 +407,19 @@ onMounted(loadImages);
         <el-empty
           v-if="!loading && images.length === 0"
           description="暂无图片"
+        />
+      </div>
+
+      <div v-if="totalImages > 0" class="gallery-pagination">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next"
+          :total="totalImages"
+          :current-page="currentPage"
+          :page-size="pageSize"
+          :page-sizes="[20, 50, 100, 200]"
+          @current-change="changePage"
+          @size-change="changePageSize"
         />
       </div>
     </aside>
@@ -482,9 +523,10 @@ onMounted(loadImages);
 <style scoped>
 .gallery-page {
   height: calc(100vh - 112px);
-  min-height: 650px;
+  min-height: 620px;
+  max-height: 900px;
   display: grid;
-  grid-template-columns: minmax(450px, 42%) minmax(560px, 58%);
+  grid-template-columns: minmax(560px, 58%) minmax(480px, 42%);
   overflow: hidden;
   background: #ffffff;
   border: 1px solid #e4e8ef;
@@ -557,14 +599,22 @@ onMounted(loadImages);
 }
 
 .thumbnail-grid {
-  flex: 1;
-  min-height: 0;
+  flex: 1 1 0;
+  min-height: 180px;
   display: grid;
   grid-template-columns: repeat(3, minmax(120px, 1fr));
   align-content: start;
   gap: 11px;
   overflow-y: auto;
   padding: 2px 5px 20px 2px;
+}
+
+.gallery-pagination {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  padding-top: 12px;
+  overflow-x: auto;
 }
 
 .thumbnail-card {
@@ -704,8 +754,9 @@ onMounted(loadImages);
 }
 
 .detail-canvas {
-  flex: 1;
-  min-height: 0;
+  flex: 0 1 620px;
+  min-height: 320px;
+  max-height: 620px;
   display: grid;
   place-items: center;
   overflow: auto;
@@ -766,7 +817,7 @@ onMounted(loadImages);
 
 @media (max-width: 1320px) {
   .gallery-page {
-    grid-template-columns: 40% 60%;
+    grid-template-columns: 55% 45%;
   }
 
   .thumbnail-grid {

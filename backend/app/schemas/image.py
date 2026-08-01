@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.image import ImageStatus
 
@@ -26,6 +26,13 @@ class ImageResponse(BaseModel):
     error_message: str | None
     created_at: datetime
     processed_at: datetime | None
+
+
+class ImagePageResponse(BaseModel):
+    items: list[ImageResponse]
+    total: int = Field(ge=0)
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=200)
 
 
 class UploadFileResult(BaseModel):

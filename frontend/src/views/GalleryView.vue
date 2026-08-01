@@ -601,7 +601,8 @@ onMounted(loadImages);
   flex: 1 1 0;
   min-height: 180px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: 224px;
   align-content: start;
   gap: 11px;
   overflow-y: auto;
@@ -618,7 +619,11 @@ onMounted(loadImages);
 
 .thumbnail-card {
   position: relative;
-  align-self: start;
+  width: 100%;
+  height: 224px;
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 180px 40px;
   overflow: hidden;
   user-select: none;
   background: #ffffff;
@@ -684,22 +689,28 @@ onMounted(loadImages);
 
 .thumbnail-image-wrap {
   width: 100%;
-  height: 150px;
-  display: grid;
-  place-items: center;
+  height: 180px;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
   background: #e9eef5;
 }
 
 .thumbnail-image-wrap img {
-  width: 100%;
-  height: 100%;
   display: block;
+  width: auto !important;
+  height: auto !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
   object-fit: contain;
 }
 
 .thumbnail-info {
-  padding: 9px 10px 10px;
+  min-width: 0;
+  padding: 6px 10px;
 }
 
 .thumbnail-info strong,
@@ -760,17 +771,22 @@ onMounted(loadImages);
   flex: 0 0 auto;
   width: 100%;
   height: clamp(360px, calc(100vh - 330px), 560px);
-  display: grid;
-  place-items: center;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
   padding: 24px;
   background: #202733;
 }
 
 .detail-canvas img {
-  width: 100%;
-  height: 100%;
   display: block;
+  width: auto !important;
+  height: auto !important;
+  max-width: 100% !important;
+  max-height: 100% !important;
   object-fit: contain;
   box-shadow: 0 18px 60px rgb(0 0 0 / 35%);
 }
@@ -822,11 +838,15 @@ onMounted(loadImages);
 
 @media (max-width: 1320px) {
   .gallery-page {
-    grid-template-columns: 55% 45%;
+    grid-template-columns: minmax(520px, 55%) minmax(420px, 45%);
+  }
+
+  .gallery-library {
+    padding-inline: 14px;
   }
 
   .thumbnail-grid {
-    grid-template-columns: repeat(2, minmax(130px, 1fr));
+    gap: 8px;
   }
 
   .detail-facts {

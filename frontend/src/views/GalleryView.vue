@@ -524,7 +524,6 @@ onMounted(loadImages);
 .gallery-page {
   height: calc(100vh - 112px);
   min-height: 620px;
-  max-height: 900px;
   display: grid;
   grid-template-columns: minmax(560px, 58%) minmax(480px, 42%);
   overflow: hidden;
@@ -619,6 +618,7 @@ onMounted(loadImages);
 
 .thumbnail-card {
   position: relative;
+  align-self: start;
   overflow: hidden;
   user-select: none;
   background: #ffffff;
@@ -683,7 +683,10 @@ onMounted(loadImages);
 }
 
 .thumbnail-image-wrap {
-  aspect-ratio: 1 / 0.82;
+  width: 100%;
+  height: 150px;
+  display: grid;
+  place-items: center;
   overflow: hidden;
   background: #e9eef5;
 }
@@ -692,7 +695,7 @@ onMounted(loadImages);
   width: 100%;
   height: 100%;
   display: block;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .thumbnail-info {
@@ -754,20 +757,20 @@ onMounted(loadImages);
 }
 
 .detail-canvas {
-  flex: 0 1 620px;
-  min-height: 320px;
-  max-height: 620px;
+  flex: 0 0 auto;
+  width: 100%;
+  height: clamp(360px, calc(100vh - 330px), 560px);
   display: grid;
   place-items: center;
-  overflow: auto;
-  padding: 28px;
+  overflow: hidden;
+  padding: 24px;
   background: #202733;
 }
 
 .detail-canvas img {
+  width: 100%;
+  height: 100%;
   display: block;
-  max-width: 100%;
-  max-height: 100%;
   object-fit: contain;
   box-shadow: 0 18px 60px rgb(0 0 0 / 35%);
 }
@@ -778,6 +781,8 @@ onMounted(loadImages);
 }
 
 .detail-footer {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;

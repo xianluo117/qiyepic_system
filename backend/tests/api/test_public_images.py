@@ -1,0 +1,128 @@
+import os
+from pathlib import Path
+
+os.environ.setdefault("SECRET_KEY", "test-secret-key-that-is-long-enough-123456")
+os.environ.setdefault("BOOTSTRAP_ADMIN_USERNAME", "admin")
+os.environ.setdefault("BOOTSTRAP_ADMIN_PASSWORD", "admin-password-123")
+os.environ.setdefault("BOOTSTRAP_ADMIN_EMPLOYEE_ID", "ADMIN")
+os.environ.setdefault("DATABASE_URL_OVERRIDE", "sqlite+pysqlite:///:memory:")
+os.environ.setdefault("IMAGE_ROOT", str(Path(__file__).parent / ".public-image-data"))
+
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
+
+from app.api.routes import public_images
+from app.core.database import Base, get_db
+from app.main import app
+from app.models.image import Image, ImageStatus
+from app.models.user import User, UserRole
+
+engine = create_engine(
+    "sqlite+pysqlite:///:memory:",
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+
+
+def override_get_db():
+    with Session(engine) as session:
+        yield session
+
+
+def create_image(session: Session, token: str, processed: bool = True) -> Image:
+    user = User(
+        employee_id="E001",
+        username=f"user-{token}",
+        password_hash="unused",
+        role=UserRole.EMPLOYEE,
+        is_active=True,
+    )
+    session.add(user)
+    session.flush()
+
+    original_key = f"E001/original/SKU/{token}.jpg"
+    processed_key = f"E001/processed/SKU/{token}.jpg" if processed else None
+    original_path = public_images._storage.get_local_path(original_key)
+    original_path.parent.mkdir(parents=True, exist_ok=True)
+    original_path.write_bytes(b"original-image")
+    if processed_key:
+        processed_path = public_images._storage.get_local_path(processed_key)
+        processed_path.parent.mkdir(parents=True, exist_ok=True)
+        processed_path.write_bytes(b"processed-image")
+
+    image = Image(
+        owner_id=user.id,
+        employee_id=user.employee_id,
+        sku="SKU",
+        original_filename=f"{token}.jpg",
+        normalized_filename=f"{token}.jpg",
+        public_token=token,
+        original_path=original_key,
+        processed_path=processed_key,
+        target_ratio_width=3,
+        target_ratio_height=4,
+        min_short_side_px=1000,
+        original_width=1500,
+        original_height=2000,
+        processed_width=1500 if processed else None,
+        processed_height=2000 if processed else None,
+        file_size=14,
+        content_type="image/jpeg",
+        status=ImageStatus.SUCCESS if processed else ImageStatus.PENDING,
+    )
+    session.add(image)
+    session.commit()
+    session.refresh(image)
+    return image
+
+
+def setup_function() -> None:
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    app.dependency_overrides[get_db] = override_get_db
+
+
+def teardown_function() -> None:
+    app.dependency_overrides.clear()
+
+
+def test_public_original_and_processed_images_are_accessible() -> None:
+    with Session(engine) as session:
+        image = create_image(session, "a" * 32)
+
+    with TestClient(app) as client:
+        original = client.get(f"/api/public/images/{image.public_token}/original")
+        processed = client.get(f"/api/public/images/{image.public_token}/processed")
+
+    assert original.status_code == 200
+    assert original.content == b"original-image"
+    assert processed.status_code == 200
+    assert processed.content == b"processed-image"
+    assert original.headers["cache-control"] == "public, max-age=31536000, immutable"
+
+
+def test_public_image_rejects_unknown_token_and_missing_processed_file() -> None:
+    with Session(engine) as session:
+        image = create_image(session, "b" * 32, processed=False)
+
+    with TestClient(app) as client:
+        unknown = client.get(f"/api/public/images/{'c' * 32}/original")
+        missing_processed = client.get(f"/api/public/images/{image.public_token}/processed")
+
+    assert unknown.status_code == 404
+    assert missing_processed.status_code == 404
+
+
+def test_public_link_stops_working_after_image_is_deleted() -> None:
+    with Session(engine) as session:
+        image = create_image(session, "d" * 32)
+        token = image.public_token
+        session.delete(image)
+        session.commit()
+
+    with TestClient(app) as client:
+        response = client.get(f"/api/public/images/{token}/original")
+
+    assert response.status_code == 404

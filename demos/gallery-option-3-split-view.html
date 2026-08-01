@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>图库方案三 - 图库与详情双栏</title>
+    <style>
+      :root {
+        font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+        color: #172033;
+        background: #eef1f5;
+        font-synthesis: none;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-width: 1120px;
+        overflow: hidden;
+        background: #eef1f5;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+
+      .shell {
+        display: flex;
+        height: 100vh;
+      }
+      .sidebar {
+        width: 218px;
+        padding: 27px 17px;
+        color: #aab6cb;
+        background: #101827;
+      }
+      .brand {
+        padding: 0 12px 27px;
+        color: white;
+        font-size: 20px;
+        font-weight: 800;
+      }
+      .brand small {
+        display: block;
+        margin-top: 7px;
+        color: #77849c;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 1.1px;
+      }
+      .nav {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        padding: 12px 14px;
+        margin-bottom: 7px;
+        border-radius: 9px;
+      }
+      .nav.active {
+        color: white;
+        background: #2468e5;
+        box-shadow: 0 8px 22px rgba(36, 104, 229, 0.26);
+      }
+
+      .main {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .topbar {
+        height: 66px;
+        flex: 0 0 66px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 25px;
+        background: white;
+        border-bottom: 1px solid #e2e6ed;
+      }
+      .account {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #68758b;
+        font-size: 13px;
+      }
+      .avatar {
+        width: 32px;
+        height: 32px;
+        display: grid;
+        place-items: center;
+        color: white;
+        background: #2468e5;
+        border-radius: 50%;
+        font-weight: 700;
+      }
+
+      .workspace {
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: minmax(430px, 43%) minmax(560px, 57%);
+      }
+      .library {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        padding: 22px;
+        border-right: 1px solid #dfe4ec;
+      }
+      .heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 22px;
+      }
+      .heading span {
+        color: #7b879b;
+        font-size: 13px;
+      }
+      .upload {
+        padding: 9px 14px;
+        color: white;
+        background: #2468e5;
+        border: 0;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 700;
+      }
+      .filters {
+        display: grid;
+        grid-template-columns: 1fr 120px;
+        gap: 9px;
+        margin-bottom: 15px;
+      }
+      input,
+      select {
+        min-width: 0;
+        padding: 10px 11px;
+        background: white;
+        border: 1px solid #d8dee8;
+        border-radius: 8px;
+        outline: none;
+        color: #445168;
+      }
+      input:focus {
+        border-color: #2468e5;
+        box-shadow: 0 0 0 3px rgba(36, 104, 229, 0.1);
+      }
+
+      .thumb-list {
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(112px, 1fr));
+        align-content: start;
+        gap: 11px;
+        overflow-y: auto;
+        padding: 2px 5px 20px 2px;
+      }
+      .thumb-card {
+        position: relative;
+        overflow: hidden;
+        padding: 0;
+        text-align: left;
+        background: white;
+        border: 2px solid transparent;
+        border-radius: 10px;
+        box-shadow: 0 3px 12px rgba(31, 45, 72, 0.06);
+      }
+      .thumb-card:hover {
+        border-color: #b8ccf3;
+      }
+      .thumb-card.active {
+        border-color: #2468e5;
+        box-shadow: 0 7px 18px rgba(36, 104, 229, 0.16);
+      }
+      .thumb-card img {
+        display: block;
+        width: 100%;
+        aspect-ratio: 1 / 0.82;
+        object-fit: cover;
+        background: #e8edf3;
+      }
+      .thumb-info {
+        padding: 9px;
+      }
+      .thumb-name {
+        overflow: hidden;
+        color: #29364c;
+        font-size: 12px;
+        font-weight: 750;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .thumb-sku {
+        margin-top: 4px;
+        color: #8792a5;
+        font-size: 11px;
+      }
+      .dot {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        width: 9px;
+        height: 9px;
+        border: 2px solid white;
+        border-radius: 50%;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+      }
+      .dot.success {
+        background: #28b76b;
+      }
+      .dot.processing {
+        background: #f3a51f;
+      }
+      .dot.failed {
+        background: #e44c5e;
+      }
+
+      .detail {
+        min-width: 0;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        background: white;
+      }
+      .detail-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 18px 22px;
+        border-bottom: 1px solid #e5e9f0;
+      }
+      .selected-name {
+        overflow: hidden;
+        font-size: 16px;
+        font-weight: 800;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .selected-sub {
+        margin-top: 5px;
+        color: #8390a4;
+        font-size: 12px;
+      }
+      .switcher {
+        display: flex;
+        flex: 0 0 auto;
+        gap: 4px;
+        padding: 4px;
+        background: #edf1f6;
+        border-radius: 9px;
+      }
+      .switch {
+        padding: 8px 15px;
+        color: #637087;
+        background: transparent;
+        border: 0;
+        border-radius: 7px;
+        font-size: 13px;
+        font-weight: 650;
+      }
+      .switch.active {
+        color: #1f5dd3;
+        background: white;
+        box-shadow: 0 2px 8px rgba(31, 45, 72, 0.1);
+      }
+      .switch:disabled {
+        opacity: 0.42;
+        cursor: not-allowed;
+      }
+
+      .canvas {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        padding: 28px;
+        background-color: #202733;
+        background-image:
+          linear-gradient(45deg, #242c39 25%, transparent 25%),
+          linear-gradient(-45deg, #242c39 25%, transparent 25%),
+          linear-gradient(45deg, transparent 75%, #242c39 75%),
+          linear-gradient(-45deg, transparent 75%, #242c39 75%);
+        background-size: 28px 28px;
+        background-position:
+          0 0,
+          0 14px,
+          14px -14px,
+          -14px 0;
+      }
+      .canvas img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+      }
+      .zoom {
+        position: absolute;
+        right: 18px;
+        bottom: 18px;
+        display: flex;
+        gap: 5px;
+        padding: 5px;
+        background: rgba(15, 21, 31, 0.82);
+        border-radius: 9px;
+      }
+      .zoom button {
+        width: 34px;
+        height: 32px;
+        color: white;
+        background: transparent;
+        border: 0;
+        border-radius: 6px;
+      }
+      .zoom button:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+
+      .detail-footer {
+        flex: 0 0 auto;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        gap: 20px;
+        padding: 16px 21px;
+        border-top: 1px solid #e5e9f0;
+      }
+      .facts {
+        display: flex;
+        gap: 23px;
+        min-width: 0;
+      }
+      .fact {
+        color: #8a96a9;
+        font-size: 11px;
+      }
+      .fact strong {
+        display: block;
+        margin-top: 4px;
+        color: #354158;
+        font-size: 13px;
+      }
+      .actions {
+        display: flex;
+        gap: 7px;
+      }
+      .btn {
+        padding: 9px 13px;
+        color: #46536a;
+        background: white;
+        border: 1px solid #d8dee8;
+        border-radius: 8px;
+        font-size: 12px;
+        font-weight: 700;
+      }
+      .btn:hover {
+        color: #2468e5;
+        border-color: #9cb9ef;
+      }
+      .btn.primary {
+        color: white;
+        background: #2468e5;
+        border-color: #2468e5;
+      }
+      .btn.danger {
+        color: #c53a4d;
+      }
+
+      @media (max-width: 1280px) {
+        .workspace {
+          grid-template-columns: 39% 61%;
+        }
+        .thumb-list {
+          grid-template-columns: repeat(2, minmax(130px, 1fr));
+        }
+        .facts {
+          gap: 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">员工图片中心<small>IMAGE WORKSPACE</small></div>
+        <div class="nav active">▦ <span>我的图库</span></div>
+        <div class="nav">⇧ <span>上传图片</span></div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <strong>企业图片管理系统</strong>
+          <div class="account">
+            <div class="avatar">L</div>
+            <span>lin · 员工端</span><span>退出</span>
+          </div>
+        </header>
+
+        <div class="workspace">
+          <section class="library">
+            <div class="heading">
+              <div>
+                <h1>我的图库</h1>
+                <span>共 18 张图片</span>
+              </div>
+              <button class="upload">＋ 上传图片</button>
+            </div>
+            <div class="filters">
+              <input placeholder="搜索文件名或货号" />
+              <select>
+                <option>全部状态</option>
+                <option>成功</option>
+                <option>处理中</option>
+                <option>失败</option>
+              </select>
+            </div>
+            <div class="thumb-list" id="thumbList"></div>
+          </section>
+
+          <section class="detail">
+            <header class="detail-head">
+              <div style="min-width: 0">
+                <div class="selected-name" id="selectedName">
+                  夏季新品_正面.jpg
+                </div>
+                <div class="selected-sub" id="selectedSub">
+                  TS-240731 · 处理成功
+                </div>
+              </div>
+              <div class="switcher">
+                <button class="switch active" data-kind="original">原图</button>
+                <button class="switch" data-kind="processed">处理图</button>
+              </div>
+            </header>
+
+            <div class="canvas">
+              <img id="mainImage" alt="当前选中图片" />
+              <div class="zoom">
+                <button title="缩小">−</button
+                ><button title="适应窗口">□</button
+                ><button title="放大">＋</button>
+              </div>
+            </div>
+
+            <footer class="detail-footer">
+              <div class="facts">
+                <span class="fact"
+                  >原图尺寸<strong id="originalSize">1500 × 2000</strong></span
+                >
+                <span class="fact"
+                  >处理尺寸<strong id="processedSize">1500 × 2000</strong></span
+                >
+                <span class="fact">目标比例<strong>3 : 4</strong></span>
+                <span class="fact"
+                  >上传时间<strong id="uploadedAt">今天 15:32</strong></span
+                >
+              </div>
+              <div class="actions">
+                <button class="btn">下载原图</button>
+                <button class="btn primary">下载当前图</button>
+                <button class="btn danger">删除</button>
+              </div>
+            </footer>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const svgImage = (label, colorA, colorB, processed = false) => {
+        const frame = processed
+          ? '<rect x="88" y="34" width="624" height="452" rx="12" fill="none" stroke="white" stroke-width="7" opacity=".9"/><text x="400" y="460" text-anchor="middle" fill="white" font-size="18" font-family="Arial">PROCESSED 3 : 4</text>'
+          : "";
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="520" viewBox="0 0 800 520"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${colorA}"/><stop offset="1" stop-color="${colorB}"/></linearGradient></defs><rect width="800" height="520" fill="url(#g)"/><path d="M0 390L210 235l127 94 98-87 365 235v43H0z" fill="white" opacity=".14"/><circle cx="670" cy="100" r="65" fill="white" opacity=".18"/><rect x="265" y="78" width="270" height="350" rx="35" fill="white" opacity=".92"/><rect x="304" y="120" width="192" height="175" rx="17" fill="${colorA}" opacity=".3"/><path d="M320 265l50-58 42 44 31-37 39 51" fill="none" stroke="${colorB}" stroke-width="13" stroke-linecap="round"/><text x="400" y="350" text-anchor="middle" fill="#26334a" font-size="25" font-weight="700" font-family="Arial">${label}</text>${frame}</svg>`;
+        return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+      };
+
+      const items = [
+        {
+          name: "夏季新品_正面.jpg",
+          sku: "TS-240731",
+          status: "success",
+          statusText: "处理成功",
+          original: "1500 × 2000",
+          processed: "1500 × 2000",
+          time: "今天 15:32",
+          colors: ["#4f7cff", "#7e57c2"],
+        },
+        {
+          name: "蓝色包装盒.png",
+          sku: "BOX-0182",
+          status: "success",
+          statusText: "处理成功",
+          original: "2048 × 2048",
+          processed: "1536 × 2048",
+          time: "今天 14:16",
+          colors: ["#00a7c4", "#1769aa"],
+        },
+        {
+          name: "产品侧面_WEB.webp",
+          sku: "SHOE-881",
+          status: "processing",
+          statusText: "处理中",
+          original: "1800 × 2400",
+          processed: "—",
+          time: "今天 11:08",
+          colors: ["#f59e0b", "#ef4444"],
+        },
+        {
+          name: "主图白底版.jpg",
+          sku: "A-99021",
+          status: "success",
+          statusText: "处理成功",
+          original: "1200 × 1600",
+          processed: "1200 × 1600",
+          time: "昨天 18:40",
+          colors: ["#10b981", "#0ea5e9"],
+        },
+        {
+          name: "细节图_拉链.jpg",
+          sku: "BAG-330",
+          status: "failed",
+          statusText: "处理失败",
+          original: "1600 × 1600",
+          processed: "—",
+          time: "昨天 16:22",
+          colors: ["#ec4899", "#8b5cf6"],
+        },
+        {
+          name: "红色款正面.png",
+          sku: "RED-2026",
+          status: "success",
+          statusText: "处理成功",
+          original: "1500 × 2000",
+          processed: "1500 × 2000",
+          time: "昨天 13:09",
+          colors: ["#ef4444", "#9f1239"],
+        },
+        {
+          name: "组合套装展示.jpg",
+          sku: "SET-102",
+          status: "success",
+          statusText: "处理成功",
+          original: "2400 × 1800",
+          processed: "1350 × 1800",
+          time: "07-29 17:42",
+          colors: ["#64748b", "#1e293b"],
+        },
+        {
+          name: "包装背面说明.jpg",
+          sku: "PKG-772",
+          status: "success",
+          statusText: "处理成功",
+          original: "1800 × 2400",
+          processed: "1800 × 2400",
+          time: "07-29 10:18",
+          colors: ["#14b8a6", "#2563eb"],
+        },
+        {
+          name: "模特展示图.jpg",
+          sku: "LOOK-09",
+          status: "success",
+          statusText: "处理成功",
+          original: "2000 × 3000",
+          processed: "2250 × 3000",
+          time: "07-28 16:43",
+          colors: ["#f97316", "#db2777"],
+        },
+      ];
+
+      const thumbList = document.getElementById("thumbList");
+      let selectedIndex = 0;
+      let currentKind = "original";
+
+      thumbList.innerHTML = items
+        .map(
+          (item, index) => `
+      <button class="thumb-card ${index === 0 ? "active" : ""}" data-index="${index}">
+        <img src="${svgImage(item.sku, item.colors[0], item.colors[1])}" alt="${item.name} 原图缩略图" />
+        <span class="dot ${item.status}" title="${item.statusText}"></span>
+        <span class="thumb-info">
+          <span class="thumb-name" style="display:block">${item.name}</span>
+          <span class="thumb-sku" style="display:block">${item.sku}</span>
+        </span>
+      </button>
+    `,
+        )
+        .join("");
+
+      function renderDetail(index, kind = "original") {
+        selectedIndex = Number(index);
+        const item = items[selectedIndex];
+        if (kind === "processed" && item.status !== "success")
+          kind = "original";
+        currentKind = kind;
+
+        document
+          .querySelectorAll(".thumb-card")
+          .forEach((card) =>
+            card.classList.toggle(
+              "active",
+              Number(card.dataset.index) === selectedIndex,
+            ),
+          );
+        document.getElementById("selectedName").textContent = item.name;
+        document.getElementById("selectedSub").textContent =
+          `${item.sku} · ${item.statusText}`;
+        document.getElementById("originalSize").textContent = item.original;
+        document.getElementById("processedSize").textContent = item.processed;
+        document.getElementById("uploadedAt").textContent = item.time;
+        document.getElementById("mainImage").src = svgImage(
+          item.sku,
+          item.colors[0],
+          item.colors[1],
+          kind === "processed",
+        );
+
+        document.querySelectorAll(".switch").forEach((button) => {
+          button.classList.toggle("active", button.dataset.kind === kind);
+          if (button.dataset.kind === "processed")
+            button.disabled = item.status !== "success";
+        });
+      }
+
+      document
+        .querySelectorAll(".thumb-card")
+        .forEach((card) =>
+          card.addEventListener("click", () =>
+            renderDetail(card.dataset.index, "original"),
+          ),
+        );
+      document
+        .querySelectorAll(".switch")
+        .forEach((button) =>
+          button.addEventListener("click", () =>
+            renderDetail(selectedIndex, button.dataset.kind),
+          ),
+        );
+      renderDetail(0, "original");
+    </script>
+  </body>
+</html>

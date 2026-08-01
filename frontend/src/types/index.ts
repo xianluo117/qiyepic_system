@@ -13,6 +13,7 @@ export type ImageStatus = "pending" | "processing" | "success" | "failed";
 
 export interface ImageItem {
   id: number;
+  public_token: string;
   employee_id: string;
   sku: string;
   original_filename: string;

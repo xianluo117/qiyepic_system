@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>图库方案一 - 缩略图卡片图库</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+        color: #172033;
+        background: #f3f5f9;
+        font-synthesis: none;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-width: 1080px;
+        background: #f3f5f9;
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+      button {
+        cursor: pointer;
+      }
+
+      .shell {
+        display: flex;
+        min-height: 100vh;
+      }
+      .sidebar {
+        width: 224px;
+        padding: 28px 18px;
+        color: #dfe7f5;
+        background: #111a2d;
+      }
+      .brand {
+        padding: 0 12px 28px;
+        color: white;
+        font-size: 20px;
+        font-weight: 800;
+      }
+      .brand small {
+        display: block;
+        margin-top: 7px;
+        color: #7f8da8;
+        font-size: 12px;
+        font-weight: 500;
+      }
+      .nav-item {
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        padding: 12px 14px;
+        margin-bottom: 7px;
+        border-radius: 10px;
+        color: #aab6cb;
+      }
+      .nav-item.active {
+        color: white;
+        background: #2869ed;
+        box-shadow: 0 8px 24px rgba(40, 105, 237, 0.28);
+      }
+
+      .main {
+        flex: 1;
+        min-width: 0;
+      }
+      .topbar {
+        height: 68px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 30px;
+        background: white;
+        border-bottom: 1px solid #e8ebf1;
+      }
+      .account {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #637087;
+        font-size: 14px;
+      }
+      .avatar {
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        color: white;
+        background: #2869ed;
+        border-radius: 50%;
+        font-weight: 700;
+      }
+
+      .content {
+        padding: 28px 30px 40px;
+      }
+      .heading {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        margin-bottom: 22px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 25px;
+        letter-spacing: -0.5px;
+      }
+      .subtitle {
+        margin: 8px 0 0;
+        color: #7a869b;
+        font-size: 14px;
+      }
+      .upload-btn {
+        padding: 11px 18px;
+        color: white;
+        background: #2869ed;
+        border: 0;
+        border-radius: 9px;
+        font-weight: 700;
+        box-shadow: 0 7px 18px rgba(40, 105, 237, 0.22);
+      }
+
+      .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 15px;
+        margin-bottom: 20px;
+        background: white;
+        border: 1px solid #e5e9f1;
+        border-radius: 13px;
+      }
+      .search {
+        flex: 1;
+        min-width: 280px;
+        padding: 10px 13px;
+        border: 1px solid #dce2ec;
+        border-radius: 8px;
+        outline: none;
+      }
+      .search:focus {
+        border-color: #2869ed;
+        box-shadow: 0 0 0 3px rgba(40, 105, 237, 0.1);
+      }
+      select {
+        padding: 10px 34px 10px 12px;
+        color: #4b5870;
+        background: white;
+        border: 1px solid #dce2ec;
+        border-radius: 8px;
+      }
+      .count {
+        margin-left: auto;
+        color: #7a869b;
+        font-size: 13px;
+        white-space: nowrap;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(220px, 1fr));
+        gap: 18px;
+      }
+      .card {
+        overflow: hidden;
+        background: white;
+        border: 1px solid #e3e8f0;
+        border-radius: 14px;
+        transition:
+          transform 0.2s ease,
+          box-shadow 0.2s ease,
+          border-color 0.2s ease;
+      }
+      .card:hover {
+        transform: translateY(-3px);
+        border-color: #cbd8f1;
+        box-shadow: 0 14px 32px rgba(28, 43, 73, 0.11);
+      }
+      .thumb {
+        position: relative;
+        aspect-ratio: 4 / 3;
+        display: grid;
+        place-items: center;
+        overflow: hidden;
+        background: #edf1f6;
+      }
+      .thumb img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transition: transform 0.25s ease;
+      }
+      .card:hover .thumb img {
+        transform: scale(1.025);
+      }
+      .status {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        padding: 5px 9px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+        backdrop-filter: blur(8px);
+      }
+      .success {
+        color: #137943;
+        background: rgba(229, 250, 237, 0.93);
+      }
+      .processing {
+        color: #a15d00;
+        background: rgba(255, 245, 218, 0.94);
+      }
+      .failed {
+        color: #b42338;
+        background: rgba(255, 232, 236, 0.94);
+      }
+      .compare-hint {
+        position: absolute;
+        left: 12px;
+        bottom: 12px;
+        padding: 6px 9px;
+        color: white;
+        background: rgba(17, 26, 45, 0.68);
+        border-radius: 7px;
+        font-size: 12px;
+      }
+
+      .card-body {
+        padding: 15px 16px 13px;
+      }
+      .filename {
+        overflow: hidden;
+        margin: 0 0 12px;
+        font-size: 15px;
+        font-weight: 800;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .meta {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px 12px;
+        color: #728097;
+        font-size: 12px;
+      }
+      .meta strong {
+        display: block;
+        margin-top: 2px;
+        color: #3a465d;
+        font-size: 13px;
+        font-weight: 650;
+      }
+      .actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 11px 12px;
+        border-top: 1px solid #edf0f5;
+      }
+      .action {
+        flex: 1;
+        padding: 8px 5px;
+        color: #46536a;
+        background: transparent;
+        border: 0;
+        border-radius: 7px;
+        font-size: 12px;
+        font-weight: 650;
+      }
+      .action:hover {
+        color: #2869ed;
+        background: #eef4ff;
+      }
+      .action.primary {
+        color: #2869ed;
+      }
+      .more {
+        flex: 0 0 34px;
+      }
+
+      .modal {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: 30px;
+        background: rgba(7, 12, 24, 0.72);
+      }
+      .modal.open {
+        display: flex;
+      }
+      .dialog {
+        width: min(1050px, 92vw);
+        overflow: hidden;
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.36);
+      }
+      .dialog-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 19px;
+        border-bottom: 1px solid #e8ebf1;
+      }
+      .dialog-title {
+        font-weight: 800;
+      }
+      .tabs {
+        display: flex;
+        gap: 5px;
+        padding: 5px;
+        background: #eef1f6;
+        border-radius: 9px;
+      }
+      .tab {
+        padding: 7px 13px;
+        color: #647087;
+        background: transparent;
+        border: 0;
+        border-radius: 7px;
+        font-size: 13px;
+      }
+      .tab.active {
+        color: #1e5ed7;
+        background: white;
+        box-shadow: 0 2px 7px rgba(24, 39, 75, 0.1);
+      }
+      .close {
+        width: 34px;
+        height: 34px;
+        color: #5f6b80;
+        background: #f0f2f6;
+        border: 0;
+        border-radius: 50%;
+        font-size: 18px;
+      }
+      .preview {
+        height: min(70vh, 650px);
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: #161c28;
+      }
+      .preview img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        box-shadow: 0 14px 50px rgba(0, 0, 0, 0.3);
+      }
+
+      @media (max-width: 1280px) {
+        .grid {
+          grid-template-columns: repeat(3, minmax(220px, 1fr));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">员工图片中心<small>IMAGE WORKSPACE</small></div>
+        <div class="nav-item active">▦ <span>我的图库</span></div>
+        <div class="nav-item">⇧ <span>上传图片</span></div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <strong>企业图片管理系统</strong>
+          <div class="account">
+            <div class="avatar">L</div>
+            <span>lin · 员工端</span><span>退出</span>
+          </div>
+        </header>
+
+        <div class="content">
+          <div class="heading">
+            <div>
+              <h1>我的图库</h1>
+              <p class="subtitle">浏览、预览和管理当前账号上传的图片</p>
+            </div>
+            <button class="upload-btn">＋ 上传图片</button>
+          </div>
+
+          <div class="toolbar">
+            <input class="search" placeholder="搜索文件名或货号" />
+            <select>
+              <option>全部状态</option>
+              <option>处理成功</option>
+              <option>处理中</option>
+              <option>处理失败</option>
+            </select>
+            <select>
+              <option>最新上传</option>
+              <option>最早上传</option>
+            </select>
+            <span class="count">共 18 张图片</span>
+          </div>
+
+          <section class="grid" id="gallery"></section>
+        </div>
+      </main>
+    </div>
+
+    <div class="modal" id="modal" aria-hidden="true">
+      <div class="dialog">
+        <div class="dialog-head">
+          <div class="dialog-title" id="dialogTitle">图片预览</div>
+          <div class="tabs">
+            <button class="tab active" data-kind="original">原图</button>
+            <button class="tab" data-kind="processed">处理图</button>
+          </div>
+          <button class="close" id="closeModal">×</button>
+        </div>
+        <div class="preview"><img id="previewImage" alt="图片预览" /></div>
+      </div>
+    </div>
+
+    <script>
+      const svgImage = (label, colorA, colorB, processed = false) => {
+        const detail = processed
+          ? '<rect x="78" y="54" width="644" height="412" rx="18" fill="none" stroke="white" stroke-width="7" opacity=".9"/><text x="400" y="435" text-anchor="middle" fill="white" font-size="20" font-family="Arial">3 : 4 PROCESSED</text>'
+          : "";
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="520" viewBox="0 0 800 520"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="${colorA}"/><stop offset="1" stop-color="${colorB}"/></linearGradient></defs><rect width="800" height="520" fill="url(#g)"/><circle cx="650" cy="105" r="72" fill="white" opacity=".18"/><circle cx="120" cy="430" r="110" fill="white" opacity=".12"/><rect x="250" y="92" width="300" height="310" rx="35" fill="white" opacity=".91"/><rect x="290" y="132" width="220" height="170" rx="18" fill="${colorA}" opacity=".28"/><path d="M305 270l58-62 45 45 32-34 58 51" fill="none" stroke="${colorB}" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><text x="400" y="350" text-anchor="middle" fill="#26334a" font-size="25" font-weight="700" font-family="Arial">${label}</text>${detail}</svg>`;
+        return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+      };
+
+      const items = [
+        {
+          name: "夏季新品_正面.jpg",
+          sku: "TS-240731",
+          size: "1500 × 2000",
+          date: "今天 15:32",
+          status: "success",
+          statusText: "处理成功",
+          colors: ["#4f7cff", "#7e57c2"],
+        },
+        {
+          name: "蓝色包装盒.png",
+          sku: "BOX-0182",
+          size: "2048 × 2048",
+          date: "今天 14:16",
+          status: "success",
+          statusText: "处理成功",
+          colors: ["#00a7c4", "#1769aa"],
+        },
+        {
+          name: "产品侧面_WEB.webp",
+          sku: "SHOE-881",
+          size: "1800 × 2400",
+          date: "今天 11:08",
+          status: "processing",
+          statusText: "处理中",
+          colors: ["#f59e0b", "#ef4444"],
+        },
+        {
+          name: "主图白底版.jpg",
+          sku: "A-99021",
+          size: "1200 × 1600",
+          date: "昨天 18:40",
+          status: "success",
+          statusText: "处理成功",
+          colors: ["#10b981", "#0ea5e9"],
+        },
+        {
+          name: "细节图_拉链.jpg",
+          sku: "BAG-330",
+          size: "1600 × 1600",
+          date: "昨天 16:22",
+          status: "failed",
+          statusText: "处理失败",
+          colors: ["#ec4899", "#8b5cf6"],
+        },
+        {
+          name: "红色款正面.png",
+          sku: "RED-2026",
+          size: "1500 × 2000",
+          date: "昨天 13:09",
+          status: "success",
+          statusText: "处理成功",
+          colors: ["#ef4444", "#9f1239"],
+        },
+        {
+          name: "组合套装展示.jpg",
+          sku: "SET-102",
+          size: "2400 × 1800",
+          date: "07-29 17:42",
+          status: "success",
+          statusText: "处理成功",
+          colors: ["#64748b", "#1e293b"],
+        },
+        {
+          name: "包装背面说明.jpg",
+          sku: "PKG-772",
+          size: "1800 × 2400",
+          date: "07-29 10:18",
+          status: "success",
+          statusText: "处理成功",
+          colors: ["#14b8a6", "#2563eb"],
+        },
+      ];
+
+      const gallery = document.getElementById("gallery");
+      gallery.innerHTML = items
+        .map(
+          (item, index) => `
+      <article class="card">
+        <button class="thumb" data-index="${index}" aria-label="预览 ${item.name}" style="border:0;padding:0;width:100%">
+          <img src="${svgImage(item.sku, item.colors[0], item.colors[1])}" alt="${item.name} 原图缩略图" />
+          <span class="status ${item.status}">${item.statusText}</span>
+          ${item.status === "success" ? '<span class="compare-hint">点击查看原图</span>' : ""}
+        </button>
+        <div class="card-body">
+          <h2 class="filename">${item.name}</h2>
+          <div class="meta">
+            <span>货号<strong>${item.sku}</strong></span>
+            <span>尺寸<strong>${item.size}</strong></span>
+            <span>目标比例<strong>3 : 4</strong></span>
+            <span>上传时间<strong>${item.date}</strong></span>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="action primary preview-original" data-index="${index}">查看原图</button>
+          <button class="action preview-processed" data-index="${index}" ${item.status !== "success" ? 'disabled title="处理图尚未生成" style="opacity:.4;cursor:not-allowed"' : ""}>查看处理图</button>
+          <button class="action more">•••</button>
+        </div>
+      </article>
+    `,
+        )
+        .join("");
+
+      const modal = document.getElementById("modal");
+      const previewImage = document.getElementById("previewImage");
+      const dialogTitle = document.getElementById("dialogTitle");
+      let currentIndex = 0;
+
+      function showPreview(index, kind = "original") {
+        currentIndex = Number(index);
+        const item = items[currentIndex];
+        const processed = kind === "processed";
+        previewImage.src = svgImage(
+          item.sku,
+          item.colors[0],
+          item.colors[1],
+          processed,
+        );
+        dialogTitle.textContent = `${item.name} · ${processed ? "处理图" : "原图"}`;
+        document
+          .querySelectorAll(".tab")
+          .forEach((tab) =>
+            tab.classList.toggle("active", tab.dataset.kind === kind),
+          );
+        modal.classList.add("open");
+        modal.setAttribute("aria-hidden", "false");
+      }
+
+      document
+        .querySelectorAll(".thumb, .preview-original")
+        .forEach((button) =>
+          button.addEventListener("click", () =>
+            showPreview(button.dataset.index, "original"),
+          ),
+        );
+      document
+        .querySelectorAll(".preview-processed:not([disabled])")
+        .forEach((button) =>
+          button.addEventListener("click", () =>
+            showPreview(button.dataset.index, "processed"),
+          ),
+        );
+      document
+        .querySelectorAll(".tab")
+        .forEach((tab) =>
+          tab.addEventListener("click", () =>
+            showPreview(currentIndex, tab.dataset.kind),
+          ),
+        );
+      document
+        .getElementById("closeModal")
+        .addEventListener("click", () => modal.classList.remove("open"));
+      modal.addEventListener("click", (event) => {
+        if (event.target === modal) modal.classList.remove("open");
+      });
+    </script>
+  </body>
+</html>

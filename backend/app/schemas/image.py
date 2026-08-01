@@ -9,6 +9,7 @@ class ImageResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    public_token: str
     employee_id: str
     sku: str
     original_filename: str

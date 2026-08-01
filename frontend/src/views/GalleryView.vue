@@ -13,6 +13,7 @@ const loading = ref(false);
 const images = ref<ImageItem[]>([]);
 const selectedImage = ref<ImageItem | null>(null);
 const selectedIds = ref<Set<number>>(new Set());
+const selectionAnchorId = ref<number | null>(null);
 const previewKind = ref<ImageKind>("original");
 const copyKind = ref<ImageKind>("original");
 const detailLoading = ref(false);
@@ -130,12 +131,49 @@ function toggleSelected(id: number, checked: boolean): void {
   if (checked) next.add(id);
   else next.delete(id);
   selectedIds.value = next;
+  selectionAnchorId.value = id;
+}
+
+function selectRange(targetId: number): void {
+  const anchorId =
+    selectionAnchorId.value ?? selectedImage.value?.id ?? targetId;
+  const anchorIndex = images.value.findIndex((item) => item.id === anchorId);
+  const targetIndex = images.value.findIndex((item) => item.id === targetId);
+  if (anchorIndex < 0 || targetIndex < 0) return;
+
+  const start = Math.min(anchorIndex, targetIndex);
+  const end = Math.max(anchorIndex, targetIndex);
+  const next = new Set(selectedIds.value);
+  for (const item of images.value.slice(start, end + 1)) next.add(item.id);
+  selectedIds.value = next;
+}
+
+function handleCardClick(event: MouseEvent, item: ImageItem): void {
+  if (event.shiftKey) {
+    event.preventDefault();
+    selectRange(item.id);
+  } else if (event.ctrlKey || event.metaKey) {
+    event.preventDefault();
+    toggleSelected(item.id, !selectedIds.value.has(item.id));
+  } else {
+    selectionAnchorId.value = item.id;
+  }
+  selectImage(item);
+}
+
+function handleCheckboxClick(event: MouseEvent, item: ImageItem): void {
+  if (!event.shiftKey) return;
+  event.preventDefault();
+  event.stopPropagation();
+  selectRange(item.id);
+  selectImage(item);
 }
 
 function toggleSelectAll(checked: boolean): void {
   selectedIds.value = checked
     ? new Set(images.value.map((item) => item.id))
     : new Set<number>();
+  selectionAnchorId.value = checked ? (images.value[0]?.id ?? null) : null;
 }
 
 async function copySelectedUrls(): Promise<void> {
@@ -306,13 +344,17 @@ onMounted(loadImages);
           v-for="item in images"
           :key="item.id"
           class="thumbnail-card"
-          :class="{ active: selectedImage?.id === item.id }"
-          @click="selectImage(item)"
+          :class="{
+            active: selectedImage?.id === item.id,
+            selected: selectedIds.has(item.id),
+          }"
+          title="单击预览；Ctrl/Cmd 单击多选；Shift 单击连续选择"
+          @click="handleCardClick($event, item)"
         >
           <el-checkbox
             class="thumbnail-checkbox"
             :model-value="selectedIds.has(item.id)"
-            @click.stop
+            @click.stop="handleCheckboxClick($event, item)"
             @change="toggleSelected(item.id, Boolean($event))"
           />
           <span
@@ -528,6 +570,7 @@ onMounted(loadImages);
 .thumbnail-card {
   position: relative;
   overflow: hidden;
+  user-select: none;
   background: #ffffff;
   border: 2px solid transparent;
   border-radius: 10px;
@@ -545,6 +588,15 @@ onMounted(loadImages);
 .thumbnail-card.active {
   border-color: #409eff;
   box-shadow: 0 7px 18px rgb(64 158 255 / 18%);
+}
+
+.thumbnail-card.selected::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  pointer-events: none;
+  border: 3px solid #67c23a;
+  border-radius: 8px;
 }
 
 .thumbnail-checkbox {

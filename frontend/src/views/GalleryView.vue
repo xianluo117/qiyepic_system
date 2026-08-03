@@ -230,6 +230,31 @@ function toggleSelectAll(checked: boolean): void {
   selectionAnchorId.value = checked ? (images.value[0]?.id ?? null) : null;
 }
 
+async function writeUrlToClipboard(
+  text: string,
+  successMessage: string,
+): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    ElMessage.success(successMessage);
+  } catch {
+    await ElMessageBox.alert(text, "浏览器无法自动写入剪贴板，请手动复制", {
+      confirmButtonText: "关闭",
+    });
+  }
+}
+
+async function copyCurrentUrl(item: ImageItem, kind: ImageKind): Promise<void> {
+  if (kind === "processed" && item.status !== "success") {
+    ElMessage.warning("处理图尚未生成");
+    return;
+  }
+  await writeUrlToClipboard(
+    getPublicUrl(item, kind),
+    `已复制当前${kind === "original" ? "原图" : "处理图"} URL`,
+  );
+}
+
 async function copySelectedUrls(): Promise<void> {
   const selected = images.value.filter((item) =>
     selectedIds.value.has(item.id),
@@ -254,16 +279,10 @@ async function copySelectedUrls(): Promise<void> {
   const text = selected
     .map((item) => getPublicUrl(item, copyKind.value))
     .join(",");
-  try {
-    await navigator.clipboard.writeText(text);
-    ElMessage.success(
-      `已复制 ${selected.length} 个${copyKind.value === "original" ? "原图" : "处理图"} URL`,
-    );
-  } catch {
-    await ElMessageBox.alert(text, "浏览器无法自动写入剪贴板，请手动复制", {
-      confirmButtonText: "关闭",
-    });
-  }
+  await writeUrlToClipboard(
+    text,
+    `已复制 ${selected.length} 个${copyKind.value === "original" ? "原图" : "处理图"} URL`,
+  );
 }
 
 async function download(item: ImageItem, kind: ImageKind): Promise<void> {
@@ -537,6 +556,16 @@ onMounted(loadImages);
             >
           </div>
           <div class="detail-actions">
+            <el-button @click="copyCurrentUrl(selectedImage, 'original')">
+              复制当前原图 URL
+            </el-button>
+            <el-button
+              type="primary"
+              :disabled="selectedImage.status !== 'success'"
+              @click="copyCurrentUrl(selectedImage, 'processed')"
+            >
+              复制当前处理图 URL
+            </el-button>
             <el-button @click="download(selectedImage, 'original')"
               >下载原图</el-button
             >

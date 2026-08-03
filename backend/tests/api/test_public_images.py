@@ -1,4 +1,5 @@
 import os
+import shutil
 from pathlib import Path
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-that-is-long-enough-123456")
@@ -31,10 +32,10 @@ def override_get_db():
         yield session
 
 
-def create_image(session: Session, token: str, processed: bool = True) -> Image:
+def create_image(session: Session, suffix: str, processed: bool = True) -> Image:
     user = User(
-        employee_id="E001",
-        username=f"user-{token}",
+        employee_id=f"E{suffix}",
+        username=f"user-{suffix}",
         password_hash="unused",
         role=UserRole.EMPLOYEE,
         is_active=True,
@@ -42,8 +43,10 @@ def create_image(session: Session, token: str, processed: bool = True) -> Image:
     session.add(user)
     session.flush()
 
-    original_key = f"E001/original/SKU/{token}.jpg"
-    processed_key = f"E001/processed/SKU/{token}.jpg" if processed else None
+    original_key = f"{user.employee_id}/original/SKU/{suffix}.jpg"
+    processed_key = (
+        f"{user.employee_id}/processed/SKU/{suffix}.jpg" if processed else None
+    )
     original_path = public_images._storage.get_local_path(original_key)
     original_path.parent.mkdir(parents=True, exist_ok=True)
     original_path.write_bytes(b"original-image")
@@ -56,9 +59,8 @@ def create_image(session: Session, token: str, processed: bool = True) -> Image:
         owner_id=user.id,
         employee_id=user.employee_id,
         sku="SKU",
-        original_filename=f"{token}.jpg",
-        normalized_filename=f"{token}.jpg",
-        public_token=token,
+        original_filename=f"{suffix}.jpg",
+        normalized_filename=f"{suffix}.jpg",
         original_path=original_key,
         processed_path=processed_key,
         target_ratio_width=3,
@@ -86,15 +88,17 @@ def setup_function() -> None:
 
 def teardown_function() -> None:
     app.dependency_overrides.clear()
+    shutil.rmtree(Path(__file__).parent / ".public-image-data", ignore_errors=True)
 
 
-def test_public_original_and_processed_images_are_accessible() -> None:
+def test_public_original_and_processed_images_are_accessible_by_id() -> None:
     with Session(engine) as session:
-        image = create_image(session, "a" * 32)
+        image = create_image(session, "001")
+        image_id = image.id
 
     with TestClient(app) as client:
-        original = client.get(f"/api/public/images/{image.public_token}/original")
-        processed = client.get(f"/api/public/images/{image.public_token}/processed")
+        original = client.get(f"/api/public/images/{image_id}/original")
+        processed = client.get(f"/api/public/images/{image_id}/processed")
 
     assert original.status_code == 200
     assert original.content == b"original-image"
@@ -103,26 +107,27 @@ def test_public_original_and_processed_images_are_accessible() -> None:
     assert original.headers["cache-control"] == "public, max-age=31536000, immutable"
 
 
-def test_public_image_rejects_unknown_token_and_missing_processed_file() -> None:
+def test_public_image_rejects_unknown_id_and_missing_processed_file() -> None:
     with Session(engine) as session:
-        image = create_image(session, "b" * 32, processed=False)
+        image = create_image(session, "002", processed=False)
+        image_id = image.id
 
     with TestClient(app) as client:
-        unknown = client.get(f"/api/public/images/{'c' * 32}/original")
-        missing_processed = client.get(f"/api/public/images/{image.public_token}/processed")
+        unknown = client.get("/api/public/images/999999/original")
+        missing_processed = client.get(f"/api/public/images/{image_id}/processed")
 
     assert unknown.status_code == 404
     assert missing_processed.status_code == 404
 
 
-def test_public_link_stops_working_after_image_is_deleted() -> None:
+def test_public_id_link_stops_working_after_image_is_deleted() -> None:
     with Session(engine) as session:
-        image = create_image(session, "d" * 32)
-        token = image.public_token
+        image = create_image(session, "003")
+        image_id = image.id
         session.delete(image)
         session.commit()
 
     with TestClient(app) as client:
-        response = client.get(f"/api/public/images/{token}/original")
+        response = client.get(f"/api/public/images/{image_id}/original")
 
     assert response.status_code == 404

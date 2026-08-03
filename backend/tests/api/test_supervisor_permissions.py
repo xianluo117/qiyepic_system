@@ -49,7 +49,6 @@ def create_image(session: Session, owner: User, image_id: int) -> Image:
         sku=f"SKU-{image_id}",
         original_filename=f"image-{image_id}.jpg",
         normalized_filename=f"image-{image_id}.jpg",
-        public_token=f"{image_id:032x}",
         original_path=original_path,
         target_ratio_width=3,
         target_ratio_height=4,

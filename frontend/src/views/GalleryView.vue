@@ -65,7 +65,7 @@ const detailPublicUrl = computed(() =>
 );
 
 function getPublicPath(item: ImageItem, kind: ImageKind): string {
-  return `/api/public/images/${item.public_token}/${kind}`;
+  return `/api/public/images/${item.id}/${kind}`;
 }
 
 function getPublicUrl(item: ImageItem, kind: ImageKind): string {

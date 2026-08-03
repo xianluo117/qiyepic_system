@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -12,13 +11,13 @@ router = APIRouter()
 _storage = LocalStorage(settings.image_root)
 
 
-@router.get("/images/{public_token}/{kind}")
+@router.get("/images/{image_id}/{kind}")
 def read_public_image(
-    public_token: str,
+    image_id: int,
     kind: str,
     db: Session = Depends(get_db),
 ) -> FileResponse:
-    image = db.scalar(select(Image).where(Image.public_token == public_token))
+    image = db.get(Image, image_id)
     if image is None:
         raise HTTPException(status_code=404, detail="公开图片不存在或链接已失效")
 

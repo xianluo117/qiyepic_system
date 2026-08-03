@@ -53,7 +53,6 @@ def setup_function() -> None:
                     sku=f"SKU-{index:03d}",
                     original_filename=f"image-{index:03d}.jpg",
                     normalized_filename=f"image-{index:03d}.jpg",
-                    public_token=f"{index:032x}",
                     original_path=f"original/{index}.jpg",
                     target_ratio_width=3,
                     target_ratio_height=4,

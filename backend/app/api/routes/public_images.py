@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -11,15 +13,21 @@ router = APIRouter()
 _storage = LocalStorage(settings.image_root)
 
 
-@router.get("/images/{image_id}/{kind}")
+@router.get("/images/{image_id}/{sku}/{filename}/{kind}")
 def read_public_image(
     image_id: int,
+    sku: str,
+    filename: str,
     kind: str,
     db: Session = Depends(get_db),
 ) -> FileResponse:
     image = db.get(Image, image_id)
     if image is None:
         raise HTTPException(status_code=404, detail="公开图片不存在或链接已失效")
+
+    expected_filename = Path(image.original_filename).stem
+    if sku != image.sku or filename != expected_filename:
+        raise HTTPException(status_code=404, detail="公开图片地址不匹配")
 
     if kind == "original":
         key = image.original_path

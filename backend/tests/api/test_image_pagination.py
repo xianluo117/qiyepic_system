@@ -101,3 +101,35 @@ def test_image_list_can_read_next_page_and_change_page_size() -> None:
     assert custom_size.status_code == 200
     assert custom_size.json()["page"] == 3
     assert len(custom_size.json()["items"]) == 15
+
+
+def test_image_list_supports_sort_fields_and_directions() -> None:
+    with TestClient(app) as client:
+        sku_ascending = client.get(
+            "/api/images?sort_by=sku&sort_order=asc&page_size=20"
+        )
+        filename_descending = client.get(
+            "/api/images?sort_by=filename&sort_order=desc&page_size=20"
+        )
+        status_ascending = client.get(
+            "/api/images?sort_by=status&sort_order=asc&page_size=20"
+        )
+        created_at_ascending = client.get(
+            "/api/images?sort_by=created_at&sort_order=asc&page_size=20"
+        )
+
+    assert sku_ascending.status_code == 200
+    assert sku_ascending.json()["items"][0]["sku"] == "SKU-000"
+    assert filename_descending.status_code == 200
+    assert filename_descending.json()["items"][0]["original_filename"] == "image-054.jpg"
+    assert status_ascending.status_code == 200
+    assert created_at_ascending.status_code == 200
+
+
+def test_image_list_rejects_unsupported_sort_values() -> None:
+    with TestClient(app) as client:
+        invalid_field = client.get("/api/images?sort_by=employee_id")
+        invalid_order = client.get("/api/images?sort_order=random")
+
+    assert invalid_field.status_code == 422
+    assert invalid_order.status_code == 422

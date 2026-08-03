@@ -1,6 +1,7 @@
 import io
 import re
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
@@ -95,6 +96,8 @@ def list_images(
     filename: str | None = None,
     image_status: ImageStatus | None = Query(default=None, alias="status"),
     employee_id: str | None = None,
+    sort_by: Literal["created_at", "sku", "filename", "status"] = "created_at",
+    sort_order: Literal["asc", "desc"] = "desc",
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     current_user: User = Depends(get_current_user),
@@ -120,8 +123,16 @@ def list_images(
         query = query.where(Image.status == image_status)
 
     total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    sort_columns = {
+        "created_at": Image.created_at,
+        "sku": Image.sku,
+        "filename": Image.original_filename,
+        "status": Image.status,
+    }
+    sort_column = sort_columns[sort_by]
+    order_expression = sort_column.asc() if sort_order == "asc" else sort_column.desc()
     page_query = (
-        query.order_by(Image.created_at.desc())
+        query.order_by(order_expression, Image.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     )

@@ -7,6 +7,8 @@ import { useAuth } from "@/stores/auth";
 import type { ImageItem, ImagePage, ImageStatus } from "@/types";
 
 type ImageKind = "original" | "processed";
+type SortField = "created_at" | "sku" | "filename" | "status";
+type SortOrder = "asc" | "desc";
 
 const auth = useAuth();
 const loading = ref(false);
@@ -27,11 +29,15 @@ const filters = reactive<{
   filename: string;
   status: ImageStatus | "";
   employee_id: string;
+  sort_by: SortField;
+  sort_order: SortOrder;
 }>({
   sku: "",
   filename: "",
   status: "",
   employee_id: "",
+  sort_by: "created_at",
+  sort_order: "desc",
 });
 
 const selectedCount = computed(() => selectedIds.value.size);
@@ -64,8 +70,17 @@ const detailPublicUrl = computed(() =>
     : "",
 );
 
+function getFilenameWithoutExtension(filename: string): string {
+  const extensionIndex = filename.lastIndexOf(".");
+  return extensionIndex > 0 ? filename.slice(0, extensionIndex) : filename;
+}
+
 function getPublicPath(item: ImageItem, kind: ImageKind): string {
-  return `/api/public/images/${item.id}/${kind}`;
+  const sku = encodeURIComponent(item.sku);
+  const filename = encodeURIComponent(
+    getFilenameWithoutExtension(item.original_filename),
+  );
+  return `/api/public/images/${item.id}/${sku}/${filename}/${kind}`;
 }
 
 function getPublicUrl(item: ImageItem, kind: ImageKind): string {
@@ -342,13 +357,29 @@ onMounted(loadImages);
             <el-input v-model="filters.filename" clearable />
           </el-form-item>
         </div>
-        <div class="filter-row filter-actions">
+        <div class="filter-row">
           <el-form-item label="状态">
             <el-select v-model="filters.status" clearable>
               <el-option label="待处理" value="pending" />
               <el-option label="处理中" value="processing" />
               <el-option label="成功" value="success" />
               <el-option label="失败" value="failed" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="排序字段">
+            <el-select v-model="filters.sort_by">
+              <el-option label="上传时间" value="created_at" />
+              <el-option label="货号" value="sku" />
+              <el-option label="原文件名" value="filename" />
+              <el-option label="状态" value="status" />
+            </el-select>
+          </el-form-item>
+        </div>
+        <div class="filter-row filter-actions">
+          <el-form-item label="排序方向">
+            <el-select v-model="filters.sort_order">
+              <el-option label="降序" value="desc" />
+              <el-option label="升序" value="asc" />
             </el-select>
           </el-form-item>
           <el-button type="primary" :loading="loading" @click="submitFilters"

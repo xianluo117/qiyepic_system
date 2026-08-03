@@ -91,14 +91,15 @@ def teardown_function() -> None:
     shutil.rmtree(Path(__file__).parent / ".public-image-data", ignore_errors=True)
 
 
-def test_public_original_and_processed_images_are_accessible_by_id() -> None:
+def test_public_original_and_processed_images_are_accessible_by_descriptive_url() -> None:
     with Session(engine) as session:
         image = create_image(session, "001")
         image_id = image.id
 
     with TestClient(app) as client:
-        original = client.get(f"/api/public/images/{image_id}/original")
-        processed = client.get(f"/api/public/images/{image_id}/processed")
+        base_url = f"/api/public/images/{image_id}/SKU/001"
+        original = client.get(f"{base_url}/original")
+        processed = client.get(f"{base_url}/processed")
 
     assert original.status_code == 200
     assert original.content == b"original-image"
@@ -107,16 +108,20 @@ def test_public_original_and_processed_images_are_accessible_by_id() -> None:
     assert original.headers["cache-control"] == "public, max-age=31536000, immutable"
 
 
-def test_public_image_rejects_unknown_id_and_missing_processed_file() -> None:
+def test_public_image_rejects_unknown_id_mismatched_path_and_missing_processed_file() -> None:
     with Session(engine) as session:
         image = create_image(session, "002", processed=False)
         image_id = image.id
 
     with TestClient(app) as client:
-        unknown = client.get("/api/public/images/999999/original")
-        missing_processed = client.get(f"/api/public/images/{image_id}/processed")
+        unknown = client.get("/api/public/images/999999/SKU/002/original")
+        mismatched = client.get(f"/api/public/images/{image_id}/WRONG/002/original")
+        missing_processed = client.get(
+            f"/api/public/images/{image_id}/SKU/002/processed"
+        )
 
     assert unknown.status_code == 404
+    assert mismatched.status_code == 404
     assert missing_processed.status_code == 404
 
 
@@ -128,6 +133,6 @@ def test_public_id_link_stops_working_after_image_is_deleted() -> None:
         session.commit()
 
     with TestClient(app) as client:
-        response = client.get(f"/api/public/images/{image_id}/original")
+        response = client.get(f"/api/public/images/{image_id}/SKU/003/original")
 
     assert response.status_code == 404

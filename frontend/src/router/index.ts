@@ -24,6 +24,13 @@ const employeeRoutes = [
     meta: { requiresAuth: true, employeeOnly: true },
     children: [{ path: "", component: UploadView }],
   },
+  {
+    path: "/team",
+    name: "team-users",
+    component: EmployeeLayout,
+    meta: { requiresAuth: true, supervisorOnly: true },
+    children: [{ path: "", component: UsersView }],
+  },
 ];
 
 const adminRoutes = [
@@ -88,6 +95,7 @@ router.beforeEach(async (to) => {
   }
   if (to.meta.adminOnly && !auth.isAdmin.value) return "/gallery";
   if (to.meta.employeeOnly && auth.isAdmin.value) return "/admin/images";
+  if (to.meta.supervisorOnly && !auth.isSupervisor.value) return "/gallery";
   if (to.name === "admin-login" && auth.isLoggedIn.value) {
     return auth.isAdmin.value ? "/admin/images" : "/gallery";
   }

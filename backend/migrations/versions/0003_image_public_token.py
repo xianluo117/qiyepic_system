@@ -28,10 +28,16 @@ def upgrade() -> None:
             {"token": uuid4().hex, "image_id": image_id},
         )
 
-    op.alter_column("images", "public_token", existing_type=sa.String(length=32), nullable=False)
-    op.create_index("ix_images_public_token", "images", ["public_token"], unique=True)
+    with op.batch_alter_table("images") as batch_op:
+        batch_op.alter_column(
+            "public_token",
+            existing_type=sa.String(length=32),
+            nullable=False,
+        )
+        batch_op.create_index("ix_images_public_token", ["public_token"], unique=True)
 
 
 def downgrade() -> None:
-    op.drop_index("ix_images_public_token", table_name="images")
-    op.drop_column("images", "public_token")
+    with op.batch_alter_table("images") as batch_op:
+        batch_op.drop_index("ix_images_public_token")
+        batch_op.drop_column("public_token")

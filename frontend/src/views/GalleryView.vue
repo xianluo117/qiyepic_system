@@ -35,6 +35,12 @@ const filters = reactive<{
 });
 
 const selectedCount = computed(() => selectedIds.value.size);
+const canManageSelectedImage = computed(
+  () =>
+    Boolean(selectedImage.value) &&
+    (auth.isAdmin.value ||
+      selectedImage.value?.employee_id === auth.user.value?.employee_id),
+);
 const allSelected = computed(
   () =>
     images.value.length > 0 &&
@@ -309,14 +315,23 @@ onMounted(loadImages);
       <div class="library-heading">
         <div>
           <h1 class="page-title">
-            {{ auth.isAdmin.value ? "全部图片" : "我的图库" }}
+            {{
+              auth.isAdmin.value
+                ? "全部图片"
+                : auth.isSupervisor.value
+                  ? "团队图库"
+                  : "我的图库"
+            }}
           </h1>
           <p>共 {{ totalImages }} 张图片</p>
         </div>
       </div>
 
       <el-form class="gallery-filters" label-position="top">
-        <el-form-item v-if="auth.isAdmin.value" label="员工 ID">
+        <el-form-item
+          v-if="auth.isAdmin.value || auth.isSupervisor.value"
+          label="员工 ID"
+        >
           <el-input v-model="filters.employee_id" clearable />
         </el-form-item>
         <div class="filter-row">
@@ -499,7 +514,7 @@ onMounted(loadImages);
               >下载处理图</el-button
             >
             <el-button
-              v-if="selectedImage.status === 'failed'"
+              v-if="selectedImage.status === 'failed' && canManageSelectedImage"
               type="warning"
               @click="retry(selectedImage)"
               >重试</el-button
@@ -513,7 +528,10 @@ onMounted(loadImages);
               "
               >失败原因</el-button
             >
-            <el-button type="danger" @click="remove(selectedImage)"
+            <el-button
+              v-if="canManageSelectedImage"
+              type="danger"
+              @click="remove(selectedImage)"
               >删除</el-button
             >
           </div>

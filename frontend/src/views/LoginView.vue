@@ -46,9 +46,9 @@ async function submit(): Promise<void> {
 <template>
   <div class="login-page" :class="{ 'admin-login-page': isAdminPortal }">
     <el-card class="login-card">
-      <h1>{{ isAdminPortal ? "管理员面板" : "员工图片中心" }}</h1>
+      <h1>{{ isAdminPortal ? "管理员面板" : "员工与主管图片中心" }}</h1>
       <p class="login-description">
-        {{ isAdminPortal ? "管理员账号登录入口" : "员工账号登录入口" }}
+        {{ isAdminPortal ? "管理员账号登录入口" : "员工及主管账号登录入口" }}
       </p>
       <el-form label-position="top" @submit.prevent="submit">
         <el-form-item label="用户名">

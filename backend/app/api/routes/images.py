@@ -67,12 +67,25 @@ def _check_image(content: bytes) -> tuple[str, int, int]:
     return image_format, width, height
 
 
+def _can_access_image(image: Image, user: User) -> bool:
+    if user.role == UserRole.ADMIN or image.owner_id == user.id:
+        return True
+    return user.role == UserRole.SUPERVISOR and image.owner.supervisor_id == user.id
+
+
 def _get_accessible_image(image_id: int, user: User, db: Session) -> Image:
     image = db.get(Image, image_id)
     if image is None:
         raise HTTPException(status_code=404, detail="图片不存在")
-    if user.role != UserRole.ADMIN and image.owner_id != user.id:
+    if not _can_access_image(image, user):
         raise HTTPException(status_code=403, detail="无权访问该图片")
+    return image
+
+
+def _get_manageable_image(image_id: int, user: User, db: Session) -> Image:
+    image = _get_accessible_image(image_id, user, db)
+    if user.role != UserRole.ADMIN and image.owner_id != user.id:
+        raise HTTPException(status_code=403, detail="只能修改自己上传的图片")
     return image
 
 
@@ -88,8 +101,15 @@ def list_images(
     db: Session = Depends(get_db),
 ) -> ImagePageResponse:
     query = select(Image)
-    if current_user.role != UserRole.ADMIN:
+    if current_user.role == UserRole.EMPLOYEE:
         query = query.where(Image.owner_id == current_user.id)
+    elif current_user.role == UserRole.SUPERVISOR:
+        team_member_ids = select(User.id).where(User.supervisor_id == current_user.id)
+        query = query.where(
+            (Image.owner_id == current_user.id) | Image.owner_id.in_(team_member_ids),
+        )
+        if employee_id:
+            query = query.where(Image.employee_id == employee_id)
     elif employee_id:
         query = query.where(Image.employee_id == employee_id)
     if sku:
@@ -278,7 +298,7 @@ def retry_image(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Image:
-    image = _get_accessible_image(image_id, current_user, db)
+    image = _get_manageable_image(image_id, current_user, db)
     if image.status in {ImageStatus.PENDING, ImageStatus.PROCESSING}:
         raise HTTPException(status_code=409, detail="图片任务正在处理中")
     processed_key = _storage.build_key(
@@ -332,7 +352,7 @@ def delete_image(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> None:
-    image = _get_accessible_image(image_id, current_user, db)
+    image = _get_manageable_image(image_id, current_user, db)
     original_path = image.original_path
     processed_path = image.processed_path
     add_operation_log(

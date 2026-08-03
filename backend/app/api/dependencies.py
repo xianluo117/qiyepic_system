@@ -41,3 +41,12 @@ def require_admin(current_user: User = Depends(get_current_user)) -> User:
             detail="仅管理员可以执行该操作",
         )
     return current_user
+
+
+def require_user_manager(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role not in {UserRole.ADMIN, UserRole.SUPERVISOR}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="仅管理员或主管可以管理员工",
+        )
+    return current_user

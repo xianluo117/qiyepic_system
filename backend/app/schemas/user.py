@@ -15,11 +15,13 @@ class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=128)
     password: str = Field(min_length=8, max_length=128)
     role: UserRole = UserRole.EMPLOYEE
+    supervisor_id: int | None = Field(default=None, ge=1)
 
 
 class UserUpdate(BaseModel):
     is_active: bool | None = None
     password: str | None = Field(default=None, min_length=8, max_length=128)
+    supervisor_id: int | None = Field(default=None, ge=1)
 
 
 class UserResponse(BaseModel):
@@ -29,5 +31,6 @@ class UserResponse(BaseModel):
     employee_id: str
     username: str
     role: UserRole
+    supervisor_id: int | None
     is_active: bool
     created_at: datetime

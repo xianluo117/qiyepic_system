@@ -1,0 +1,179 @@
+import os
+from pathlib import Path
+
+os.environ.setdefault("SECRET_KEY", "test-secret-key-that-is-long-enough-123456")
+os.environ.setdefault("BOOTSTRAP_ADMIN_USERNAME", "admin")
+os.environ.setdefault("BOOTSTRAP_ADMIN_PASSWORD", "admin-password-123")
+os.environ.setdefault("BOOTSTRAP_ADMIN_EMPLOYEE_ID", "ADMIN")
+os.environ.setdefault("DATABASE_URL_OVERRIDE", "sqlite+pysqlite:///:memory:")
+os.environ.setdefault("IMAGE_ROOT", str(Path(__file__).parent / ".supervisor-image-data"))
+
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
+
+from app.api.dependencies import get_current_user
+from app.api.routes import images as image_routes
+from app.core.database import Base, get_db
+from app.main import app
+from app.models.image import Image, ImageStatus
+from app.models.user import User, UserRole
+
+engine = create_engine(
+    "sqlite+pysqlite:///:memory:",
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+current_username = "supervisor"
+
+
+def override_get_db():
+    with Session(engine) as session:
+        yield session
+
+
+def override_current_user():
+    with Session(engine) as session:
+        return session.query(User).filter(User.username == current_username).one()
+
+
+def create_image(session: Session, owner: User, image_id: int) -> Image:
+    original_path = f"{owner.employee_id}/original/{image_id}.jpg"
+    local_path = image_routes._storage.get_local_path(original_path)
+    local_path.parent.mkdir(parents=True, exist_ok=True)
+    local_path.write_bytes(f"image-{image_id}".encode())
+    image = Image(
+        owner_id=owner.id,
+        employee_id=owner.employee_id,
+        sku=f"SKU-{image_id}",
+        original_filename=f"image-{image_id}.jpg",
+        normalized_filename=f"image-{image_id}.jpg",
+        public_token=f"{image_id:032x}",
+        original_path=original_path,
+        target_ratio_width=3,
+        target_ratio_height=4,
+        min_short_side_px=1000,
+        original_width=1500,
+        original_height=2000,
+        file_size=100,
+        content_type="image/jpeg",
+        status=ImageStatus.FAILED,
+    )
+    session.add(image)
+    return image
+
+
+def setup_function() -> None:
+    global current_username
+    current_username = "supervisor"
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        supervisor = User(
+            employee_id="S001",
+            username="supervisor",
+            password_hash="unused",
+            role=UserRole.SUPERVISOR,
+            is_active=True,
+        )
+        other_supervisor = User(
+            employee_id="S002",
+            username="other-supervisor",
+            password_hash="unused",
+            role=UserRole.SUPERVISOR,
+            is_active=True,
+        )
+        session.add_all([supervisor, other_supervisor])
+        session.flush()
+        member = User(
+            employee_id="E001",
+            username="member",
+            password_hash="unused",
+            role=UserRole.EMPLOYEE,
+            supervisor_id=supervisor.id,
+            is_active=True,
+        )
+        outsider = User(
+            employee_id="E002",
+            username="outsider",
+            password_hash="unused",
+            role=UserRole.EMPLOYEE,
+            supervisor_id=other_supervisor.id,
+            is_active=True,
+        )
+        session.add_all([member, outsider])
+        session.flush()
+        create_image(session, supervisor, 1)
+        create_image(session, member, 2)
+        create_image(session, outsider, 3)
+        session.commit()
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_current_user
+
+
+def teardown_function() -> None:
+    app.dependency_overrides.clear()
+    import shutil
+
+    shutil.rmtree(Path(__file__).parent / ".supervisor-image-data", ignore_errors=True)
+
+
+def test_supervisor_lists_only_self_and_team_images() -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/images")
+
+    assert response.status_code == 200
+    employee_ids = {item["employee_id"] for item in response.json()["items"]}
+    assert employee_ids == {"S001", "E001"}
+
+
+def test_supervisor_can_read_and_download_team_image_but_cannot_modify_it() -> None:
+    with TestClient(app) as client:
+        detail = client.get("/api/images/2")
+        download = client.get("/api/images/2/file/original")
+        retry = client.post("/api/images/2/retry")
+        delete = client.delete("/api/images/2")
+
+    assert detail.status_code == 200
+    assert download.status_code == 200
+    assert download.content == b"image-2"
+    assert retry.status_code == 403
+    assert delete.status_code == 403
+
+
+def test_supervisor_cannot_read_other_team_image() -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/images/3")
+
+    assert response.status_code == 403
+
+
+def test_supervisor_can_create_and_manage_only_direct_employee() -> None:
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/users",
+            json={
+                "employee_id": "E003",
+                "username": "new-member",
+                "password": "password-123",
+                "role": "employee",
+            },
+        )
+        forbidden_role = client.post(
+            "/api/users",
+            json={
+                "employee_id": "S003",
+                "username": "new-supervisor",
+                "password": "password-123",
+                "role": "supervisor",
+            },
+        )
+        outsider_update = client.patch("/api/users/4", json={"is_active": False})
+
+    assert created.status_code == 201
+    assert created.json()["supervisor_id"] == 1
+    assert forbidden_role.status_code == 403
+    assert outsider_update.status_code == 403

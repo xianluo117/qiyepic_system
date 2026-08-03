@@ -9,6 +9,7 @@ const user = ref<User | null>(null);
 export function useAuth() {
   const isLoggedIn = computed(() => Boolean(token.value));
   const isAdmin = computed(() => user.value?.role === "admin");
+  const isSupervisor = computed(() => user.value?.role === "supervisor");
 
   async function login(username: string, password: string): Promise<void> {
     const form = new URLSearchParams({ username, password });
@@ -38,5 +39,14 @@ export function useAuth() {
     localStorage.removeItem("access_token");
   }
 
-  return { token, user, isLoggedIn, isAdmin, login, loadCurrentUser, logout };
+  return {
+    token,
+    user,
+    isLoggedIn,
+    isAdmin,
+    isSupervisor,
+    login,
+    loadCurrentUser,
+    logout,
+  };
 }

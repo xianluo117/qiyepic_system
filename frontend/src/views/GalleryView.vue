@@ -76,11 +76,12 @@ function getFilenameWithoutExtension(filename: string): string {
 }
 
 function getPublicPath(item: ImageItem, kind: ImageKind): string {
+  const employeeId = encodeURIComponent(item.employee_id);
   const sku = encodeURIComponent(item.sku);
   const filename = encodeURIComponent(
     getFilenameWithoutExtension(item.original_filename),
   );
-  return `/api/public/images/${item.id}/${sku}/${filename}/${kind}`;
+  return `/api/public/images/${employeeId}/${sku}/${filename}/${kind}`;
 }
 
 function getPublicUrl(item: ImageItem, kind: ImageKind): string {

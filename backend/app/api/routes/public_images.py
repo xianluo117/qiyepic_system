@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -13,21 +14,30 @@ router = APIRouter()
 _storage = LocalStorage(settings.image_root)
 
 
-@router.get("/images/{image_id}/{sku}/{filename}/{kind}")
+@router.get("/images/{employee_id}/{sku}/{filename}/{kind}")
 def read_public_image(
-    image_id: int,
+    employee_id: str,
     sku: str,
     filename: str,
     kind: str,
     db: Session = Depends(get_db),
 ) -> FileResponse:
-    image = db.get(Image, image_id)
-    if image is None:
+    candidates = db.scalars(
+        select(Image).where(
+            Image.employee_id == employee_id,
+            Image.sku == sku,
+        )
+    ).all()
+    matches = [
+        image
+        for image in candidates
+        if Path(image.original_filename).stem == filename
+    ]
+    if not matches:
         raise HTTPException(status_code=404, detail="公开图片不存在或链接已失效")
-
-    expected_filename = Path(image.original_filename).stem
-    if sku != image.sku or filename != expected_filename:
-        raise HTTPException(status_code=404, detail="公开图片地址不匹配")
+    if len(matches) > 1:
+        raise HTTPException(status_code=409, detail="存在多个同名但扩展名不同的图片")
+    image = matches[0]
 
     if kind == "original":
         key = image.original_path

@@ -93,11 +93,10 @@ def teardown_function() -> None:
 
 def test_public_original_and_processed_images_are_accessible_by_descriptive_url() -> None:
     with Session(engine) as session:
-        image = create_image(session, "001")
-        image_id = image.id
+        create_image(session, "001")
 
     with TestClient(app) as client:
-        base_url = f"/api/public/images/{image_id}/SKU/001"
+        base_url = "/api/public/images/E001/SKU/001"
         original = client.get(f"{base_url}/original")
         processed = client.get(f"{base_url}/processed")
 
@@ -108,16 +107,15 @@ def test_public_original_and_processed_images_are_accessible_by_descriptive_url(
     assert original.headers["cache-control"] == "public, max-age=31536000, immutable"
 
 
-def test_public_image_rejects_unknown_id_mismatched_path_and_missing_processed_file() -> None:
+def test_public_image_rejects_unknown_employee_mismatched_path_and_missing_file() -> None:
     with Session(engine) as session:
-        image = create_image(session, "002", processed=False)
-        image_id = image.id
+        create_image(session, "002", processed=False)
 
     with TestClient(app) as client:
-        unknown = client.get("/api/public/images/999999/SKU/002/original")
-        mismatched = client.get(f"/api/public/images/{image_id}/WRONG/002/original")
+        unknown = client.get("/api/public/images/UNKNOWN/SKU/002/original")
+        mismatched = client.get("/api/public/images/E002/WRONG/002/original")
         missing_processed = client.get(
-            f"/api/public/images/{image_id}/SKU/002/processed"
+            "/api/public/images/E002/SKU/002/processed"
         )
 
     assert unknown.status_code == 404
@@ -125,14 +123,13 @@ def test_public_image_rejects_unknown_id_mismatched_path_and_missing_processed_f
     assert missing_processed.status_code == 404
 
 
-def test_public_id_link_stops_working_after_image_is_deleted() -> None:
+def test_public_descriptive_link_stops_working_after_image_is_deleted() -> None:
     with Session(engine) as session:
         image = create_image(session, "003")
-        image_id = image.id
         session.delete(image)
         session.commit()
 
     with TestClient(app) as client:
-        response = client.get(f"/api/public/images/{image_id}/SKU/003/original")
+        response = client.get("/api/public/images/E003/SKU/003/original")
 
     assert response.status_code == 404

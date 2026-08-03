@@ -15,7 +15,7 @@ const uploadRef = ref<UploadInstance>();
 const selectedFiles = ref<UploadFiles>([]);
 const loading = ref(false);
 const results = ref<UploadFileResult[]>([]);
-const form = reactive({ sku: "", ratio: "3:4", minShortSide: 1200 });
+const form = reactive({ sku: "", ratio: "3:4", minShortSide: 1500 });
 
 function onChange(_: UploadFile, files: UploadFiles): void {
   selectedFiles.value = files;

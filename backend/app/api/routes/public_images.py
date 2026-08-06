@@ -44,12 +44,14 @@ def read_public_image(
         key = image.original_path
         media_type = image.content_type
         filename_for_response = image.original_filename
+        cache_control = "public, max-age=31536000, immutable"
     elif kind == "processed":
         key = image.processed_path
         if not key:
             raise HTTPException(status_code=404, detail="处理图尚未生成")
         media_type = "image/jpeg"
         filename_for_response = get_processed_filename(image.original_filename)
+        cache_control = "no-store, no-cache, must-revalidate, max-age=0"
     else:
         raise HTTPException(status_code=400, detail="图片类型必须是 original 或 processed")
 
@@ -62,5 +64,5 @@ def read_public_image(
         media_type=media_type,
         filename=filename_for_response,
         content_disposition_type="inline",
-        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+        headers={"Cache-Control": cache_control},
     )

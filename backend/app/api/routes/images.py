@@ -311,7 +311,12 @@ def download_image(
     path = _storage.get_local_path(key)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="图片文件不存在")
-    return FileResponse(path=path, media_type=media_type, filename=filename)
+    return FileResponse(
+        path=path,
+        media_type=media_type,
+        filename=filename,
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
 
 
 @router.post("/{image_id}/retry", response_model=ImageResponse)

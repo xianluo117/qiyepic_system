@@ -98,7 +98,10 @@ function getPublicPath(item: ImageItem, kind: ImageKind): string {
   const filename = encodeURIComponent(
     getFilenameWithoutExtension(item.original_filename),
   );
-  return `/api/public/images/${employeeId}/${sku}/${filename}/${kind}`;
+  const path = `/api/public/images/${employeeId}/${sku}/${filename}/${kind}`;
+  if (kind !== "processed" || !item.processed_at) return path;
+
+  return `${path}?v=${encodeURIComponent(item.processed_at)}`;
 }
 
 function getPublicUrl(item: ImageItem, kind: ImageKind): string {
@@ -305,12 +308,16 @@ async function copySelectedUrls(): Promise<void> {
 async function download(item: ImageItem, kind: ImageKind): Promise<void> {
   try {
     const { data } = await apiClient.get(`/images/${item.id}/file/${kind}`, {
+      params: { v: kind === "processed" ? item.processed_at : item.created_at },
       responseType: "blob",
     });
     const url = URL.createObjectURL(data as Blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = item.original_filename;
+    link.download =
+      kind === "processed"
+        ? `${getFilenameWithoutExtension(item.original_filename)}.jpg`
+        : item.original_filename;
     link.click();
     URL.revokeObjectURL(url);
   } catch (error) {

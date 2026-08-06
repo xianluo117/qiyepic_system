@@ -199,6 +199,34 @@ def test_supervisor_can_reprocess_own_successful_image() -> None:
     delay.assert_called_once_with(1)
 
 
+def test_processed_download_uses_jpeg_filename_and_disables_cache() -> None:
+    processed_key = "S001/processed/SKU-1/image-1.jpg"
+    processed_path = image_routes._storage.get_local_path(processed_key)
+    processed_path.parent.mkdir(parents=True, exist_ok=True)
+    processed_path.write_bytes(b"jpeg-processed-image")
+
+    with Session(engine) as session:
+        image = session.get(Image, 1)
+        assert image is not None
+        image.original_filename = "image-1.png"
+        image.normalized_filename = "image-1.png"
+        image.content_type = "image/png"
+        image.status = ImageStatus.SUCCESS
+        image.processed_path = processed_key
+        session.commit()
+
+    with TestClient(app) as client:
+        response = client.get("/api/images/1/file/processed?v=current-version")
+
+    assert response.status_code == 200
+    assert response.content == b"jpeg-processed-image"
+    assert response.headers["content-type"] == "image/jpeg"
+    assert 'filename="image-1.jpg"' in response.headers["content-disposition"]
+    assert response.headers["cache-control"] == (
+        "no-store, no-cache, must-revalidate, max-age=0"
+    )
+
+
 def test_supervisor_cannot_read_other_team_image() -> None:
     with TestClient(app) as client:
         response = client.get("/api/images/3")

@@ -108,6 +108,9 @@ def test_public_original_and_processed_images_are_accessible_by_descriptive_url(
     assert processed.headers["content-type"] == "image/jpeg"
     assert 'filename="001.jpg"' in processed.headers["content-disposition"]
     assert original.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert processed.headers["cache-control"] == (
+        "no-store, no-cache, must-revalidate, max-age=0"
+    )
 
 
 def test_public_image_rejects_unknown_employee_mismatched_path_and_missing_file() -> None:

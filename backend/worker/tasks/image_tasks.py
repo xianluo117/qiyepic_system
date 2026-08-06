@@ -6,6 +6,7 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.image import Image, ImageStatus
 from app.models.operation_log import LogCategory, LogStatus
+from app.processing.paths import get_processed_filename
 from app.processing.processor import ImageProcessor
 from app.services.audit import add_operation_log
 from app.storage.local import LocalStorage
@@ -45,13 +46,13 @@ def process_image(self, image_id: int) -> dict[str, int | bool | str]:
         )
         db.commit()
 
+        processed_key = storage.build_key(
+            image.employee_id,
+            "processed",
+            image.sku,
+            get_processed_filename(image.original_filename),
+        )
         try:
-            processed_key = storage.build_key(
-                image.employee_id,
-                "processed",
-                image.sku,
-                image.original_filename,
-            )
             result = processor.process(
                 source_path=storage.get_local_path(image.original_path),
                 target_path=storage.get_local_path(processed_key),

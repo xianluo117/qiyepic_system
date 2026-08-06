@@ -17,6 +17,7 @@ from app.core.database import get_db
 from app.models.image import Image, ImageStatus
 from app.models.operation_log import LogCategory, LogStatus
 from app.models.user import User, UserRole
+from app.processing.paths import get_processed_filename
 from app.schemas.image import (
     ImagePageResponse,
     ImageReprocessRequest,
@@ -53,7 +54,7 @@ def _validate_sku(sku: str) -> str:
 
 
 def _remove_incomplete_processed_file(key: str) -> None:
-    """重试前清理可能由旧任务留下的未完成处理图。"""
+    """重试前清理可能由旧任务留下的处理图和临时文件。"""
     path = _storage.get_local_path(key)
     path.unlink(missing_ok=True)
     path.with_name(f".{path.name}.processing").unlink(missing_ok=True)
@@ -296,17 +297,21 @@ def download_image(
     image = _get_accessible_image(image_id, current_user, db)
     if kind == "original":
         key = image.original_path
+        media_type = image.content_type
+        filename = image.original_filename
     elif kind == "processed":
         key = image.processed_path
         if not key:
             raise HTTPException(status_code=409, detail="处理图尚未生成")
+        media_type = "image/jpeg"
+        filename = get_processed_filename(image.original_filename)
     else:
         raise HTTPException(status_code=400, detail="文件类型必须是 original 或 processed")
 
     path = _storage.get_local_path(key)
     if not path.is_file():
         raise HTTPException(status_code=404, detail="图片文件不存在")
-    return FileResponse(path=path, media_type=image.content_type, filename=image.original_filename)
+    return FileResponse(path=path, media_type=media_type, filename=filename)
 
 
 @router.post("/{image_id}/retry", response_model=ImageResponse)
@@ -319,13 +324,24 @@ def retry_image(
     image = _get_manageable_image(image_id, current_user, db)
     if image.status in {ImageStatus.PENDING, ImageStatus.PROCESSING}:
         raise HTTPException(status_code=409, detail="图片任务正在处理中")
-    processed_key = _storage.build_key(
+    new_processed_key = _storage.build_key(
+        image.employee_id,
+        "processed",
+        image.sku,
+        get_processed_filename(image.original_filename),
+    )
+    keys_to_remove = {new_processed_key}
+    if image.processed_path:
+        keys_to_remove.add(image.processed_path)
+    old_format_key = _storage.build_key(
         image.employee_id,
         "processed",
         image.sku,
         image.original_filename,
     )
-    _remove_incomplete_processed_file(processed_key)
+    keys_to_remove.add(old_format_key)
+    for processed_key in keys_to_remove:
+        _remove_incomplete_processed_file(processed_key)
     image.target_ratio_width = payload.ratio_width
     image.target_ratio_height = payload.ratio_height
     image.min_short_side_px = payload.min_short_side_px

@@ -102,8 +102,11 @@ def test_public_original_and_processed_images_are_accessible_by_descriptive_url(
 
     assert original.status_code == 200
     assert original.content == b"original-image"
+    assert original.headers["content-type"] == "image/jpeg"
     assert processed.status_code == 200
     assert processed.content == b"processed-image"
+    assert processed.headers["content-type"] == "image/jpeg"
+    assert 'filename="001.jpg"' in processed.headers["content-disposition"]
     assert original.headers["cache-control"] == "public, max-age=31536000, immutable"
 
 

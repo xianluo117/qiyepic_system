@@ -23,12 +23,11 @@ class ImageProcessResult:
 
 
 class ImageProcessor:
-    """执行先居中裁剪、后判断是否放大的处理流程。"""
+    """裁剪和缩放原图，并将所有处理图统一编码为 JPEG。"""
 
     _MAX_RESIZE_SCALE = 2
     _MAX_OUTPUT_SIZE_BYTES = 2 * 1024 * 1024
     _LOSSY_QUALITIES = (95, 90)
-    _PNG_COMPRESSION_LEVELS = (9, 8)
     _SHARPEN_RADIUS = 1.2
     _SHARPEN_PERCENT = 110
     _SHARPEN_THRESHOLD = 3
@@ -64,12 +63,12 @@ class ImageProcessor:
                 output = self._progressive_resize(cropped, output_width, output_height)
                 output = self._sharpen_enlarged_image(output)
 
+            output = self._flatten_to_rgb(output)
             target_path.parent.mkdir(parents=True, exist_ok=True)
             try:
                 output_file_size, compression_setting = self._save(
                     output,
                     target_path,
-                    opened.format,
                 )
             except OutputSizeLimitError:
                 output_short_side = min(output.size)
@@ -86,7 +85,6 @@ class ImageProcessor:
                 output_file_size, compression_setting = self._save(
                     output,
                     target_path,
-                    opened.format,
                 )
 
             output_width, output_height = output.size
@@ -169,52 +167,38 @@ class ImageProcessor:
 
         return output
 
+    @staticmethod
+    def _flatten_to_rgb(image: Image.Image) -> Image.Image:
+        """将透明或半透明像素合成到白底，并输出 JPEG 可用的 RGB 图像。"""
+        if "A" not in image.getbands():
+            return image.convert("RGB")
+
+        rgba = image.convert("RGBA")
+        white_background = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+        return Image.alpha_composite(white_background, rgba).convert("RGB")
+
     @classmethod
     def _save(
         cls,
         image: Image.Image,
         target_path: Path,
-        source_format: str | None,
     ) -> tuple[int, str]:
-        image_format = (source_format or target_path.suffix.lstrip(".")).upper()
-        candidates: list[tuple[dict[str, int | bool], str]]
-
-        if image_format in {"JPG", "JPEG"}:
-            image_format = "JPEG"
-            if image.mode not in {"RGB", "L"}:
-                image = image.convert("RGB")
-            candidates = [
-                (
-                    {"quality": quality, "optimize": True, "subsampling": 0},
-                    f"quality={quality}",
-                )
-                for quality in cls._LOSSY_QUALITIES
-            ]
-        elif image_format == "WEBP":
-            candidates = [
-                (
-                    {"quality": quality, "method": 6},
-                    f"quality={quality}",
-                )
-                for quality in cls._LOSSY_QUALITIES
-            ]
-        elif image_format == "PNG":
-            candidates = [
-                (
-                    {"optimize": True, "compress_level": level},
-                    f"compress_level={level}",
-                )
-                for level in cls._PNG_COMPRESSION_LEVELS
-            ]
-        else:
-            raise ValueError(f"不支持的输出格式: {image_format}")
+        if image.mode != "RGB":
+            image = cls._flatten_to_rgb(image)
+        candidates = [
+            (
+                {"quality": quality, "optimize": True, "subsampling": 0},
+                f"quality={quality}",
+            )
+            for quality in cls._LOSSY_QUALITIES
+        ]
 
         temporary = target_path.with_name(f".{target_path.name}.processing")
         target_path.unlink(missing_ok=True)
         try:
             for save_options, compression_setting in candidates:
                 temporary.unlink(missing_ok=True)
-                image.save(temporary, format=image_format, **save_options)
+                image.save(temporary, format="JPEG", **save_options)
                 output_file_size = temporary.stat().st_size
                 if output_file_size <= cls._MAX_OUTPUT_SIZE_BYTES:
                     temporary.replace(target_path)
@@ -222,7 +206,7 @@ class ImageProcessor:
 
             raise OutputSizeLimitError(
                 "处理图压缩后仍超过 2 MiB；"
-                f"格式={image_format}，最后大小={output_file_size} 字节"
+                f"格式=JPEG，最后大小={output_file_size} 字节"
             )
         except Exception:
             temporary.unlink(missing_ok=True)

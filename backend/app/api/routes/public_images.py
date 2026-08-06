@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.image import Image
+from app.processing.paths import get_processed_filename
 from app.storage.local import LocalStorage
 
 router = APIRouter()
@@ -41,10 +42,14 @@ def read_public_image(
 
     if kind == "original":
         key = image.original_path
+        media_type = image.content_type
+        filename_for_response = image.original_filename
     elif kind == "processed":
         key = image.processed_path
         if not key:
             raise HTTPException(status_code=404, detail="处理图尚未生成")
+        media_type = "image/jpeg"
+        filename_for_response = get_processed_filename(image.original_filename)
     else:
         raise HTTPException(status_code=400, detail="图片类型必须是 original 或 processed")
 
@@ -54,8 +59,8 @@ def read_public_image(
 
     return FileResponse(
         path=path,
-        media_type=image.content_type,
-        filename=image.original_filename,
+        media_type=media_type,
+        filename=filename_for_response,
         content_disposition_type="inline",
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )

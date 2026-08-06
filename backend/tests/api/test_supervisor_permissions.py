@@ -152,10 +152,17 @@ def test_supervisor_can_read_and_download_team_image_but_cannot_modify_it() -> N
 
 
 def test_supervisor_can_reprocess_own_successful_image() -> None:
-    processed_key = "S001/processed/SKU-1/image-1.jpg"
+    processed_key = "S001/processed/SKU-1/image-1.png"
     processed_path = image_routes._storage.get_local_path(processed_key)
     processed_path.parent.mkdir(parents=True, exist_ok=True)
     processed_path.write_bytes(b"old-processed-image")
+    new_processed_path = image_routes._storage.get_local_path(
+        "S001/processed/SKU-1/image-1.jpg"
+    )
+    new_processed_path.write_bytes(b"incomplete-new-image")
+    new_processed_path.with_name(".image-1.jpg.processing").write_bytes(
+        b"temporary-image"
+    )
 
     with Session(engine) as session:
         image = session.get(Image, 1)
@@ -187,6 +194,8 @@ def test_supervisor_can_reprocess_own_successful_image() -> None:
     assert response.json()["target_ratio_height"] == 5
     assert response.json()["min_short_side_px"] == 1600
     assert not processed_path.exists()
+    assert not new_processed_path.exists()
+    assert not new_processed_path.with_name(".image-1.jpg.processing").exists()
     delay.assert_called_once_with(1)
 
 

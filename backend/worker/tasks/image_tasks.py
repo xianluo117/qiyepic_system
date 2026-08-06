@@ -20,8 +20,8 @@ logger = get_task_logger(__name__)
     retry_backoff=True,
     retry_kwargs={"max_retries": 3},
 )
-def process_image(self, image_id: int) -> dict[str, int | bool]:
-    """读取原图，先裁剪，再按最小短边判断是否放大。"""
+def process_image(self, image_id: int) -> dict[str, int | bool | str]:
+    """读取原图，依次执行裁剪、像素处理和 2 MiB 限制压缩。"""
 
     storage = LocalStorage(settings.image_root)
     processor = ImageProcessor()
@@ -78,6 +78,8 @@ def process_image(self, image_id: int) -> dict[str, int | bool]:
                 message=f"图片处理成功 {image.original_filename}",
                 details=(
                     f"output={result.output_width}x{result.output_height}, "
+                    f"file_size={result.output_file_size}, "
+                    f"compression={result.compression_setting}, "
                     f"enlarged={result.enlarged}"
                 ),
             )
@@ -87,6 +89,8 @@ def process_image(self, image_id: int) -> dict[str, int | bool]:
                 "image_id": image_id,
                 "output_width": result.output_width,
                 "output_height": result.output_height,
+                "output_file_size": result.output_file_size,
+                "compression_setting": result.compression_setting,
                 "enlarged": result.enlarged,
             }
         except Exception as exc:

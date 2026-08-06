@@ -12,6 +12,8 @@ class ImageProcessResult:
     cropped_height: int
     output_width: int
     output_height: int
+    output_file_size: int
+    compression_setting: str
     enlarged: bool
 
 
@@ -19,6 +21,9 @@ class ImageProcessor:
     """执行先居中裁剪、后判断是否放大的处理流程。"""
 
     _MAX_RESIZE_SCALE = 2
+    _MAX_OUTPUT_SIZE_BYTES = 2 * 1024 * 1024
+    _LOSSY_QUALITIES = (95, 90)
+    _PNG_COMPRESSION_LEVELS = (9, 8)
     _SHARPEN_RADIUS = 1.2
     _SHARPEN_PERCENT = 110
     _SHARPEN_THRESHOLD = 3
@@ -55,7 +60,11 @@ class ImageProcessor:
 
             output_width, output_height = output.size
             target_path.parent.mkdir(parents=True, exist_ok=True)
-            self._save(output, target_path, opened.format)
+            output_file_size, compression_setting = self._save(
+                output,
+                target_path,
+                opened.format,
+            )
 
         return ImageProcessResult(
             original_width=original_width,
@@ -64,6 +73,8 @@ class ImageProcessor:
             cropped_height=cropped_height,
             output_width=output_width,
             output_height=output_height,
+            output_file_size=output_file_size,
+            compression_setting=compression_setting,
             enlarged=enlarged,
         )
 
@@ -132,25 +143,62 @@ class ImageProcessor:
 
         return output
 
-    @staticmethod
-    def _save(image: Image.Image, target_path: Path, source_format: str | None) -> None:
+    @classmethod
+    def _save(
+        cls,
+        image: Image.Image,
+        target_path: Path,
+        source_format: str | None,
+    ) -> tuple[int, str]:
         image_format = (source_format or target_path.suffix.lstrip(".")).upper()
-        save_options: dict[str, int | bool] = {}
+        candidates: list[tuple[dict[str, int | bool], str]]
 
         if image_format in {"JPG", "JPEG"}:
             image_format = "JPEG"
             if image.mode not in {"RGB", "L"}:
                 image = image.convert("RGB")
-            save_options = {"quality": 95, "optimize": True, "subsampling": 0}
+            candidates = [
+                (
+                    {"quality": quality, "optimize": True, "subsampling": 0},
+                    f"quality={quality}",
+                )
+                for quality in cls._LOSSY_QUALITIES
+            ]
         elif image_format == "WEBP":
-            save_options = {"quality": 95, "method": 6}
-        elif image_format != "PNG":
+            candidates = [
+                (
+                    {"quality": quality, "method": 6},
+                    f"quality={quality}",
+                )
+                for quality in cls._LOSSY_QUALITIES
+            ]
+        elif image_format == "PNG":
+            candidates = [
+                (
+                    {"optimize": True, "compress_level": level},
+                    f"compress_level={level}",
+                )
+                for level in cls._PNG_COMPRESSION_LEVELS
+            ]
+        else:
             raise ValueError(f"不支持的输出格式: {image_format}")
 
         temporary = target_path.with_name(f".{target_path.name}.processing")
+        target_path.unlink(missing_ok=True)
         try:
-            image.save(temporary, format=image_format, **save_options)
-            temporary.replace(target_path)
+            for save_options, compression_setting in candidates:
+                temporary.unlink(missing_ok=True)
+                image.save(temporary, format=image_format, **save_options)
+                output_file_size = temporary.stat().st_size
+                if output_file_size <= cls._MAX_OUTPUT_SIZE_BYTES:
+                    temporary.replace(target_path)
+                    return output_file_size, compression_setting
+
+            raise ValueError(
+                "处理图压缩后仍超过 2 MiB，已停止保存；"
+                f"格式={image_format}，最后大小={output_file_size} 字节"
+            )
         except Exception:
             temporary.unlink(missing_ok=True)
+            target_path.unlink(missing_ok=True)
             raise

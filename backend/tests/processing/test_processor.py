@@ -1,5 +1,5 @@
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from PIL import Image, ImageDraw
 
@@ -148,3 +148,124 @@ def test_transparent_png_keeps_alpha_when_enlarged(tmp_path: Path) -> None:
         assert processed.mode == "RGBA"
         assert processed.getpixel((0, 0))[3] == 0
         assert processed.getpixel((100, 100))[3] == 255
+
+
+def test_jpeg_retries_quality_90_when_quality_95_exceeds_limit(tmp_path: Path) -> None:
+    target = tmp_path / "processed.jpg"
+    image = Image.new("RGB", (100, 100), color="white")
+    processor = ImageProcessor()
+
+    def fake_save(path: Path, **options: object) -> None:
+        size = 101 if options["quality"] == 95 else 99
+        Path(path).write_bytes(b"x" * size)
+
+    with (
+        patch.object(ImageProcessor, "_MAX_OUTPUT_SIZE_BYTES", 100),
+        patch.object(image, "save", side_effect=fake_save) as save,
+    ):
+        file_size, setting = processor._save(image, target, "JPEG")
+
+    assert file_size == 99
+    assert setting == "quality=90"
+    assert target.stat().st_size == 99
+    assert save.call_args_list == [
+        call(
+            target.with_name(".processed.jpg.processing"),
+            format="JPEG",
+            quality=95,
+            optimize=True,
+            subsampling=0,
+        ),
+        call(
+            target.with_name(".processed.jpg.processing"),
+            format="JPEG",
+            quality=90,
+            optimize=True,
+            subsampling=0,
+        ),
+    ]
+
+
+def test_webp_uses_quality_95_when_output_is_within_limit(tmp_path: Path) -> None:
+    target = tmp_path / "processed.webp"
+    image = Image.new("RGB", (100, 100), color="white")
+    processor = ImageProcessor()
+
+    def fake_save(path: Path, **_: object) -> None:
+        Path(path).write_bytes(b"x" * 99)
+
+    with (
+        patch.object(ImageProcessor, "_MAX_OUTPUT_SIZE_BYTES", 100),
+        patch.object(image, "save", side_effect=fake_save) as save,
+    ):
+        file_size, setting = processor._save(image, target, "WEBP")
+
+    assert file_size == 99
+    assert setting == "quality=95"
+    save.assert_called_once_with(
+        target.with_name(".processed.webp.processing"),
+        format="WEBP",
+        quality=95,
+        method=6,
+    )
+
+
+def test_png_retries_compression_level_8_after_level_9(tmp_path: Path) -> None:
+    target = tmp_path / "processed.png"
+    image = Image.new("RGBA", (100, 100), color=(255, 0, 0, 128))
+    processor = ImageProcessor()
+
+    def fake_save(path: Path, **options: object) -> None:
+        size = 101 if options["compress_level"] == 9 else 99
+        Path(path).write_bytes(b"x" * size)
+
+    with (
+        patch.object(ImageProcessor, "_MAX_OUTPUT_SIZE_BYTES", 100),
+        patch.object(image, "save", side_effect=fake_save) as save,
+    ):
+        file_size, setting = processor._save(image, target, "PNG")
+
+    assert file_size == 99
+    assert setting == "compress_level=8"
+    assert image.mode == "RGBA"
+    assert save.call_args_list == [
+        call(
+            target.with_name(".processed.png.processing"),
+            format="PNG",
+            optimize=True,
+            compress_level=9,
+        ),
+        call(
+            target.with_name(".processed.png.processing"),
+            format="PNG",
+            optimize=True,
+            compress_level=8,
+        ),
+    ]
+
+
+def test_save_fails_and_cleans_files_when_all_candidates_exceed_limit(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "processed.jpg"
+    temporary = target.with_name(".processed.jpg.processing")
+    target.write_bytes(b"old-output")
+    image = Image.new("RGB", (100, 100), color="white")
+    processor = ImageProcessor()
+
+    def fake_save(path: Path, **_: object) -> None:
+        Path(path).write_bytes(b"x" * 101)
+
+    with (
+        patch.object(ImageProcessor, "_MAX_OUTPUT_SIZE_BYTES", 100),
+        patch.object(image, "save", side_effect=fake_save),
+    ):
+        try:
+            processor._save(image, target, "JPEG")
+        except ValueError as exc:
+            assert "处理图压缩后仍超过 2 MiB" in str(exc)
+        else:
+            raise AssertionError("所有压缩候选超限时应处理失败")
+
+    assert not target.exists()
+    assert not temporary.exists()

@@ -80,7 +80,8 @@ def process_image(self, image_id: int) -> dict[str, int | bool | str]:
                     f"output={result.output_width}x{result.output_height}, "
                     f"file_size={result.output_file_size}, "
                     f"compression={result.compression_setting}, "
-                    f"enlarged={result.enlarged}"
+                    f"enlarged={result.enlarged}, "
+                    f"reduced_for_size_limit={result.reduced_for_size_limit}"
                 ),
             )
             db.commit()
@@ -92,6 +93,7 @@ def process_image(self, image_id: int) -> dict[str, int | bool | str]:
                 "output_file_size": result.output_file_size,
                 "compression_setting": result.compression_setting,
                 "enlarged": result.enlarged,
+                "reduced_for_size_limit": result.reduced_for_size_limit,
             }
         except Exception as exc:
             db.rollback()

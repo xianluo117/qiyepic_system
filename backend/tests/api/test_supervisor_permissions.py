@@ -134,7 +134,14 @@ def test_supervisor_can_read_and_download_team_image_but_cannot_modify_it() -> N
     with TestClient(app) as client:
         detail = client.get("/api/images/2")
         download = client.get("/api/images/2/file/original")
-        retry = client.post("/api/images/2/retry")
+        retry = client.post(
+            "/api/images/2/retry",
+            json={
+                "ratio_width": 1,
+                "ratio_height": 1,
+                "min_short_side_px": 1500,
+            },
+        )
         delete = client.delete("/api/images/2")
 
     assert detail.status_code == 200
@@ -163,12 +170,22 @@ def test_supervisor_can_reprocess_own_successful_image() -> None:
         patch.object(image_routes.process_image, "delay") as delay,
         TestClient(app) as client,
     ):
-        response = client.post("/api/images/1/retry")
+        response = client.post(
+            "/api/images/1/retry",
+            json={
+                "ratio_width": 4,
+                "ratio_height": 5,
+                "min_short_side_px": 1600,
+            },
+        )
 
     assert response.status_code == 200
     assert response.json()["status"] == "pending"
     assert response.json()["processed_width"] is None
     assert response.json()["processed_height"] is None
+    assert response.json()["target_ratio_width"] == 4
+    assert response.json()["target_ratio_height"] == 5
+    assert response.json()["min_short_side_px"] == 1600
     assert not processed_path.exists()
     delay.assert_called_once_with(1)
 

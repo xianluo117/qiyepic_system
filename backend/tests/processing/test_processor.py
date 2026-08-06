@@ -3,7 +3,7 @@ from unittest.mock import call, patch
 
 from PIL import Image, ImageDraw
 
-from app.processing.processor import ImageProcessor
+from app.processing.processor import ImageProcessor, OutputSizeLimitError
 
 
 def test_center_crop_then_enlarge(tmp_path: Path) -> None:
@@ -269,3 +269,58 @@ def test_save_fails_and_cleans_files_when_all_candidates_exceed_limit(
 
     assert not target.exists()
     assert not temporary.exists()
+
+
+def test_process_reduces_to_minimum_short_side_after_size_limit(tmp_path: Path) -> None:
+    source = tmp_path / "source.jpg"
+    target = tmp_path / "processed.jpg"
+    Image.new("RGB", (2000, 3000), color="white").save(source, format="JPEG")
+    processor = ImageProcessor()
+    save_calls: list[tuple[int, int]] = []
+
+    def fake_save(image: Image.Image, _: Path, __: str | None) -> tuple[int, str]:
+        save_calls.append(image.size)
+        if len(save_calls) == 1:
+            raise OutputSizeLimitError("too large")
+        return 100, "quality=95"
+
+    with patch.object(processor, "_save", side_effect=fake_save):
+        result = processor.process(
+            source_path=source,
+            target_path=target,
+            ratio_width=2,
+            ratio_height=3,
+            min_short_side_px=1000,
+        )
+
+    assert save_calls == [(2000, 3000), (1000, 1500)]
+    assert result.output_width == 1000
+    assert result.output_height == 1500
+    assert result.reduced_for_size_limit is True
+
+
+def test_process_does_not_reduce_below_minimum_short_side(tmp_path: Path) -> None:
+    source = tmp_path / "source.jpg"
+    target = tmp_path / "processed.jpg"
+    Image.new("RGB", (1000, 1500), color="white").save(source, format="JPEG")
+    processor = ImageProcessor()
+
+    with patch.object(
+        processor,
+        "_save",
+        side_effect=OutputSizeLimitError("too large"),
+    ) as save:
+        try:
+            processor.process(
+                source_path=source,
+                target_path=target,
+                ratio_width=2,
+                ratio_height=3,
+                min_short_side_px=1000,
+            )
+        except OutputSizeLimitError:
+            pass
+        else:
+            raise AssertionError("达到最小短边后仍超限时应处理失败")
+
+    save.assert_called_once()

@@ -17,7 +17,13 @@ from app.core.database import get_db
 from app.models.image import Image, ImageStatus
 from app.models.operation_log import LogCategory, LogStatus
 from app.models.user import User, UserRole
-from app.schemas.image import ImagePageResponse, ImageResponse, UploadFileResult, UploadResponse
+from app.schemas.image import (
+    ImagePageResponse,
+    ImageReprocessRequest,
+    ImageResponse,
+    UploadFileResult,
+    UploadResponse,
+)
 from app.services.audit import add_operation_log
 from app.storage.local import LocalStorage
 from worker.tasks.image_tasks import process_image
@@ -306,6 +312,7 @@ def download_image(
 @router.post("/{image_id}/retry", response_model=ImageResponse)
 def retry_image(
     image_id: int,
+    payload: ImageReprocessRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Image:
@@ -319,6 +326,9 @@ def retry_image(
         image.original_filename,
     )
     _remove_incomplete_processed_file(processed_key)
+    image.target_ratio_width = payload.ratio_width
+    image.target_ratio_height = payload.ratio_height
+    image.min_short_side_px = payload.min_short_side_px
     image.processed_path = None
     image.processed_width = None
     image.processed_height = None
@@ -334,6 +344,10 @@ def retry_image(
         image_id=image.id,
         target=f"{image.sku}/{image.original_filename}",
         message=f"重新提交图片处理任务 {image.original_filename}",
+        details=(
+            f"ratio={payload.ratio_width}:{payload.ratio_height}, "
+            f"min_short_side={payload.min_short_side_px}"
+        ),
     )
     db.commit()
     try:

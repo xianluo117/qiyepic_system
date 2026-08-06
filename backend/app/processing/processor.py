@@ -4,6 +4,10 @@ from pathlib import Path
 from PIL import Image, ImageFilter, ImageOps
 
 
+class OutputSizeLimitError(ValueError):
+    """所有候选编码均超过处理图大小上限。"""
+
+
 @dataclass(frozen=True, slots=True)
 class ImageProcessResult:
     original_width: int
@@ -15,6 +19,7 @@ class ImageProcessResult:
     output_file_size: int
     compression_setting: str
     enlarged: bool
+    reduced_for_size_limit: bool
 
 
 class ImageProcessor:
@@ -49,6 +54,7 @@ class ImageProcessor:
 
             short_side = min(cropped_width, cropped_height)
             enlarged = short_side < min_short_side_px
+            reduced_for_size_limit = False
             output = cropped
 
             if enlarged:
@@ -58,13 +64,32 @@ class ImageProcessor:
                 output = self._progressive_resize(cropped, output_width, output_height)
                 output = self._sharpen_enlarged_image(output)
 
-            output_width, output_height = output.size
             target_path.parent.mkdir(parents=True, exist_ok=True)
-            output_file_size, compression_setting = self._save(
-                output,
-                target_path,
-                opened.format,
-            )
+            try:
+                output_file_size, compression_setting = self._save(
+                    output,
+                    target_path,
+                    opened.format,
+                )
+            except OutputSizeLimitError:
+                output_short_side = min(output.size)
+                if output_short_side <= min_short_side_px:
+                    raise
+                scale = min_short_side_px / output_short_side
+                output_width = max(1, round(output.width * scale))
+                output_height = max(1, round(output.height * scale))
+                output = output.resize(
+                    (output_width, output_height),
+                    Image.Resampling.LANCZOS,
+                )
+                reduced_for_size_limit = True
+                output_file_size, compression_setting = self._save(
+                    output,
+                    target_path,
+                    opened.format,
+                )
+
+            output_width, output_height = output.size
 
         return ImageProcessResult(
             original_width=original_width,
@@ -76,6 +101,7 @@ class ImageProcessor:
             output_file_size=output_file_size,
             compression_setting=compression_setting,
             enlarged=enlarged,
+            reduced_for_size_limit=reduced_for_size_limit,
         )
 
     @staticmethod
@@ -194,8 +220,8 @@ class ImageProcessor:
                     temporary.replace(target_path)
                     return output_file_size, compression_setting
 
-            raise ValueError(
-                "处理图压缩后仍超过 2 MiB，已停止保存；"
+            raise OutputSizeLimitError(
+                "处理图压缩后仍超过 2 MiB；"
                 f"格式={image_format}，最后大小={output_file_size} 字节"
             )
         except Exception:

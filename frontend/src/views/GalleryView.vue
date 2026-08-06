@@ -24,6 +24,13 @@ const copyKind = ref<ImageKind>("original");
 const detailLoading = ref(false);
 const detailLoadFailed = ref(false);
 const reprocessing = ref(false);
+const reprocessDialogVisible = ref(false);
+const reprocessItems = ref<ImageItem[]>([]);
+const reprocessForm = reactive({
+  ratioWidth: 3,
+  ratioHeight: 4,
+  minShortSidePx: 1500,
+});
 const previewRequestId = ref(0);
 const filters = reactive<{
   sku: string;
@@ -311,33 +318,34 @@ async function download(item: ImageItem, kind: ImageKind): Promise<void> {
   }
 }
 
-async function submitReprocess(items: ImageItem[]): Promise<void> {
+function openReprocessDialog(items: ImageItem[]): void {
   if (items.length === 0) {
     ElMessage.warning("没有可重新处理的图片");
     return;
   }
+  const first = items[0];
+  reprocessItems.value = items;
+  reprocessForm.ratioWidth = first.target_ratio_width;
+  reprocessForm.ratioHeight = first.target_ratio_height;
+  reprocessForm.minShortSidePx = first.min_short_side_px;
+  reprocessDialogVisible.value = true;
+}
 
-  const skippedCount = selectedCount.value - items.length;
-  const message =
-    items.length === 1
-      ? `确定使用原比例和最小短边参数重新处理 ${items[0].original_filename} 吗？`
-      : `确定使用原参数重新处理 ${items.length} 张图片吗？${skippedCount > 0 ? ` 将跳过 ${skippedCount} 张无权限图片。` : ""}`;
-
-  try {
-    await ElMessageBox.confirm(message, "重新处理确认", {
-      type: "warning",
-      confirmButtonText: "重新处理",
-      cancelButtonText: "取消",
-    });
-  } catch {
-    return;
-  }
+async function submitReprocess(): Promise<void> {
+  const items = reprocessItems.value;
+  if (items.length === 0) return;
 
   reprocessing.value = true;
+  const payload = {
+    ratio_width: reprocessForm.ratioWidth,
+    ratio_height: reprocessForm.ratioHeight,
+    min_short_side_px: reprocessForm.minShortSidePx,
+  };
   const results = await Promise.allSettled(
-    items.map((item) => apiClient.post(`/images/${item.id}/retry`)),
+    items.map((item) => apiClient.post(`/images/${item.id}/retry`, payload)),
   );
   reprocessing.value = false;
+  reprocessDialogVisible.value = false;
 
   const successCount = results.filter(
     (result) => result.status === "fulfilled",
@@ -357,12 +365,12 @@ async function submitReprocess(items: ImageItem[]): Promise<void> {
   await loadImages();
 }
 
-async function reprocessCurrent(item: ImageItem): Promise<void> {
-  await submitReprocess([item]);
+function reprocessCurrent(item: ImageItem): void {
+  openReprocessDialog([item]);
 }
 
-async function reprocessSelected(): Promise<void> {
-  await submitReprocess(selectedManageableImages.value);
+function reprocessSelected(): void {
+  openReprocessDialog(selectedManageableImages.value);
 }
 
 async function remove(item: ImageItem): Promise<void> {
@@ -667,6 +675,62 @@ onMounted(loadImages);
       </template>
       <el-empty v-else description="请选择一张图片" />
     </main>
+
+    <el-dialog
+      v-model="reprocessDialogVisible"
+      title="重新处理参数"
+      width="420px"
+      :close-on-click-modal="!reprocessing"
+      :close-on-press-escape="!reprocessing"
+    >
+      <el-form label-position="top">
+        <div class="reprocess-ratio-row">
+          <el-form-item label="比例宽度">
+            <el-input-number
+              v-model="reprocessForm.ratioWidth"
+              :min="1"
+              :max="1000"
+              :precision="0"
+            />
+          </el-form-item>
+          <el-form-item label="比例高度">
+            <el-input-number
+              v-model="reprocessForm.ratioHeight"
+              :min="1"
+              :max="1000"
+              :precision="0"
+            />
+          </el-form-item>
+        </div>
+        <el-form-item label="最小短边 PX">
+          <el-input-number
+            v-model="reprocessForm.minShortSidePx"
+            :min="1"
+            :max="20000"
+            :precision="0"
+          />
+        </el-form-item>
+        <p class="reprocess-hint">
+          将使用同一组参数重新处理
+          {{ reprocessItems.length }} 张图片，并保存为图片的新参数。
+        </p>
+      </el-form>
+      <template #footer>
+        <el-button
+          :disabled="reprocessing"
+          @click="reprocessDialogVisible = false"
+        >
+          取消
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="reprocessing"
+          @click="submitReprocess"
+        >
+          确认重新处理
+        </el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
@@ -984,6 +1048,24 @@ onMounted(loadImages);
 
 .detail-actions .el-button {
   margin-left: 0;
+}
+
+.reprocess-ratio-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.reprocess-ratio-row :deep(.el-input-number),
+:deep(.el-dialog .el-input-number) {
+  width: 100%;
+}
+
+.reprocess-hint {
+  margin: 0;
+  color: #8490a4;
+  font-size: 13px;
+  line-height: 1.6;
 }
 
 @media (max-width: 1320px) {

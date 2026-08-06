@@ -27,6 +27,12 @@ class ImageResponse(BaseModel):
     processed_at: datetime | None
 
 
+class ImageReprocessRequest(BaseModel):
+    ratio_width: int = Field(gt=0, le=1000)
+    ratio_height: int = Field(gt=0, le=1000)
+    min_short_side_px: int = Field(gt=0, le=20000)
+
+
 class ImagePageResponse(BaseModel):
     items: list[ImageResponse]
     total: int = Field(ge=0)

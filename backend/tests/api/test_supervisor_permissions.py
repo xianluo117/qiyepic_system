@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("SECRET_KEY", "test-secret-key-that-is-long-enough-123456")
 os.environ.setdefault("BOOTSTRAP_ADMIN_USERNAME", "admin")
@@ -141,6 +142,35 @@ def test_supervisor_can_read_and_download_team_image_but_cannot_modify_it() -> N
     assert download.content == b"image-2"
     assert retry.status_code == 403
     assert delete.status_code == 403
+
+
+def test_supervisor_can_reprocess_own_successful_image() -> None:
+    processed_key = "S001/processed/SKU-1/image-1.jpg"
+    processed_path = image_routes._storage.get_local_path(processed_key)
+    processed_path.parent.mkdir(parents=True, exist_ok=True)
+    processed_path.write_bytes(b"old-processed-image")
+
+    with Session(engine) as session:
+        image = session.get(Image, 1)
+        assert image is not None
+        image.status = ImageStatus.SUCCESS
+        image.processed_path = processed_key
+        image.processed_width = 1500
+        image.processed_height = 2000
+        session.commit()
+
+    with (
+        patch.object(image_routes.process_image, "delay") as delay,
+        TestClient(app) as client,
+    ):
+        response = client.post("/api/images/1/retry")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending"
+    assert response.json()["processed_width"] is None
+    assert response.json()["processed_height"] is None
+    assert not processed_path.exists()
+    delay.assert_called_once_with(1)
 
 
 def test_supervisor_cannot_read_other_team_image() -> None:

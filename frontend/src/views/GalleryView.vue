@@ -23,6 +23,7 @@ const previewKind = ref<ImageKind>("original");
 const copyKind = ref<ImageKind>("original");
 const detailLoading = ref(false);
 const detailLoadFailed = ref(false);
+const reprocessing = ref(false);
 const previewRequestId = ref(0);
 const filters = reactive<{
   sku: string;
@@ -41,11 +42,20 @@ const filters = reactive<{
 });
 
 const selectedCount = computed(() => selectedIds.value.size);
+
+function canManageImage(item: ImageItem): boolean {
+  return (
+    auth.isAdmin.value || item.employee_id === auth.user.value?.employee_id
+  );
+}
+
 const canManageSelectedImage = computed(
-  () =>
-    Boolean(selectedImage.value) &&
-    (auth.isAdmin.value ||
-      selectedImage.value?.employee_id === auth.user.value?.employee_id),
+  () => Boolean(selectedImage.value) && canManageImage(selectedImage.value!),
+);
+const selectedManageableImages = computed(() =>
+  images.value.filter(
+    (item) => selectedIds.value.has(item.id) && canManageImage(item),
+  ),
 );
 const allSelected = computed(
   () =>
@@ -301,14 +311,58 @@ async function download(item: ImageItem, kind: ImageKind): Promise<void> {
   }
 }
 
-async function retry(item: ImageItem): Promise<void> {
-  try {
-    await apiClient.post(`/images/${item.id}/retry`);
-    ElMessage.success("已重新处理");
-    await loadImages();
-  } catch (error) {
-    ElMessage.error(getApiError(error));
+async function submitReprocess(items: ImageItem[]): Promise<void> {
+  if (items.length === 0) {
+    ElMessage.warning("没有可重新处理的图片");
+    return;
   }
+
+  const skippedCount = selectedCount.value - items.length;
+  const message =
+    items.length === 1
+      ? `确定使用原比例和最小短边参数重新处理 ${items[0].original_filename} 吗？`
+      : `确定使用原参数重新处理 ${items.length} 张图片吗？${skippedCount > 0 ? ` 将跳过 ${skippedCount} 张无权限图片。` : ""}`;
+
+  try {
+    await ElMessageBox.confirm(message, "重新处理确认", {
+      type: "warning",
+      confirmButtonText: "重新处理",
+      cancelButtonText: "取消",
+    });
+  } catch {
+    return;
+  }
+
+  reprocessing.value = true;
+  const results = await Promise.allSettled(
+    items.map((item) => apiClient.post(`/images/${item.id}/retry`)),
+  );
+  reprocessing.value = false;
+
+  const successCount = results.filter(
+    (result) => result.status === "fulfilled",
+  ).length;
+  const failedResults = results.filter(
+    (result): result is PromiseRejectedResult => result.status === "rejected",
+  );
+
+  if (failedResults.length === 0) {
+    ElMessage.success(`已提交 ${successCount} 张图片重新处理`);
+  } else {
+    const firstError = getApiError(failedResults[0].reason);
+    ElMessage.warning(
+      `已提交 ${successCount} 张，失败 ${failedResults.length} 张：${firstError}`,
+    );
+  }
+  await loadImages();
+}
+
+async function reprocessCurrent(item: ImageItem): Promise<void> {
+  await submitReprocess([item]);
+}
+
+async function reprocessSelected(): Promise<void> {
+  await submitReprocess(selectedManageableImages.value);
 }
 
 async function remove(item: ImageItem): Promise<void> {
@@ -427,6 +481,14 @@ onMounted(loadImages);
           @click="copySelectedUrls"
         >
           复制 URL
+        </el-button>
+        <el-button
+          size="small"
+          :loading="reprocessing"
+          :disabled="selectedManageableImages.length === 0"
+          @click="reprocessSelected"
+        >
+          批量重新处理
         </el-button>
         <el-button
           v-if="selectedCount"
@@ -575,10 +637,15 @@ onMounted(loadImages);
               >下载处理图</el-button
             >
             <el-button
-              v-if="selectedImage.status === 'failed' && canManageSelectedImage"
+              v-if="canManageSelectedImage"
               type="warning"
-              @click="retry(selectedImage)"
-              >重试</el-button
+              :loading="reprocessing"
+              :disabled="
+                selectedImage.status === 'pending' ||
+                selectedImage.status === 'processing'
+              "
+              @click="reprocessCurrent(selectedImage)"
+              >重新处理</el-button
             >
             <el-button
               v-if="

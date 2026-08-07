@@ -188,12 +188,12 @@ def test_supervisor_can_reprocess_own_successful_image() -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "pending"
-    assert response.json()["processed_width"] is None
-    assert response.json()["processed_height"] is None
+    assert response.json()["processed_width"] == 1500
+    assert response.json()["processed_height"] == 2000
     assert response.json()["target_ratio_width"] == 4
     assert response.json()["target_ratio_height"] == 5
     assert response.json()["min_short_side_px"] == 1600
-    assert not processed_path.exists()
+    assert processed_path.exists()
     assert not new_processed_path.exists()
     assert not new_processed_path.with_name(".image-1.jpg.processing").exists()
     delay.assert_called_once_with(1)

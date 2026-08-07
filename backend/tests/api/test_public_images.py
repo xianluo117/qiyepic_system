@@ -18,6 +18,7 @@ from app.api.routes import public_images
 from app.core.database import Base, get_db
 from app.main import app
 from app.models.image import Image, ImageStatus
+from app.models.image_version import ImageVersion
 from app.models.user import User, UserRole
 
 engine = create_engine(
@@ -80,6 +81,39 @@ def create_image(session: Session, suffix: str, processed: bool = True) -> Image
     return image
 
 
+def create_version(
+    session: Session,
+    image: Image,
+    version_number: int = 1,
+) -> ImageVersion:
+    processed_key = (
+        f"{image.employee_id}/processed/{image.sku}/"
+        f"{Path(image.original_filename).stem}.image-{image.id}.v{version_number}.jpg"
+    )
+    processed_path = public_images._storage.get_local_path(processed_key)
+    processed_path.parent.mkdir(parents=True, exist_ok=True)
+    processed_path.write_bytes(f"version-{version_number}".encode())
+    version = ImageVersion(
+        image_id=image.id,
+        version_number=version_number,
+        processed_path=processed_key,
+        ratio_width=3,
+        ratio_height=4,
+        min_short_side_px=1000,
+        output_width=1500,
+        output_height=2000,
+        file_size=len(f"version-{version_number}"),
+        compression_setting="quality=90",
+    )
+    session.add(version)
+    image.processed_path = processed_key
+    image.current_version_number = version_number
+    image.status = ImageStatus.SUCCESS
+    session.commit()
+    session.refresh(version)
+    return version
+
+
 def setup_function() -> None:
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
@@ -107,7 +141,9 @@ def test_public_original_and_processed_images_are_accessible_by_descriptive_url(
     assert processed.content == b"processed-image"
     assert processed.headers["content-type"] == "image/jpeg"
     assert 'filename="001.jpg"' in processed.headers["content-disposition"]
-    assert original.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert original.headers["cache-control"] == (
+        "no-store, no-cache, must-revalidate, max-age=0"
+    )
     assert processed.headers["cache-control"] == (
         "no-store, no-cache, must-revalidate, max-age=0"
     )
@@ -129,6 +165,29 @@ def test_public_image_rejects_unknown_employee_mismatched_path_and_missing_file(
     assert missing_processed.status_code == 404
 
 
+def test_versioned_public_url_reads_requested_immutable_version() -> None:
+    with Session(engine) as session:
+        image = create_image(session, "004", processed=False)
+        create_version(session, image)
+        image_id = image.id
+
+    with TestClient(app) as client:
+        base_url = f"/api/public/images/{image_id}/E004/SKU/004"
+        original = client.get(f"{base_url}/original")
+        processed = client.get(f"{base_url}/processed?v=1")
+        missing_version = client.get(f"{base_url}/processed?v=2")
+        mismatched = client.get(
+            f"/api/public/images/{image_id}/WRONG/SKU/004/processed?v=1"
+        )
+
+    assert original.status_code == 200
+    assert processed.status_code == 200
+    assert processed.content == b"version-1"
+    assert processed.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert missing_version.status_code == 404
+    assert mismatched.status_code == 404
+
+
 def test_public_descriptive_link_stops_working_after_image_is_deleted() -> None:
     with Session(engine) as session:
         image = create_image(session, "003")
@@ -137,5 +196,21 @@ def test_public_descriptive_link_stops_working_after_image_is_deleted() -> None:
 
     with TestClient(app) as client:
         response = client.get("/api/public/images/E003/SKU/003/original")
+
+    assert response.status_code == 404
+
+
+def test_all_versioned_public_links_stop_working_after_image_is_deleted() -> None:
+    with Session(engine) as session:
+        image = create_image(session, "005", processed=False)
+        create_version(session, image)
+        image_id = image.id
+        session.delete(image)
+        session.commit()
+
+    with TestClient(app) as client:
+        response = client.get(
+            f"/api/public/images/{image_id}/E005/SKU/005/processed?v=1"
+        )
 
     assert response.status_code == 404

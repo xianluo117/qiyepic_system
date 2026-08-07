@@ -4,7 +4,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 
 import { apiClient, getApiError } from "@/services/api";
 import { useAuth } from "@/stores/auth";
-import type { ImageItem, ImagePage, ImageStatus } from "@/types";
+import type { ImageItem, ImagePage, ImageStatus, ImageVersion } from "@/types";
 
 type ImageKind = "original" | "processed";
 type SortField = "created_at" | "sku" | "filename" | "status";
@@ -26,6 +26,10 @@ const detailLoadFailed = ref(false);
 const reprocessing = ref(false);
 const reprocessDialogVisible = ref(false);
 const reprocessItems = ref<ImageItem[]>([]);
+const versionsDrawerVisible = ref(false);
+const versionsLoading = ref(false);
+const imageVersions = ref<ImageVersion[]>([]);
+const versionPreviewUrl = ref("");
 const reprocessForm = reactive({
   ratioWidth: 3,
   ratioHeight: 4,
@@ -92,20 +96,33 @@ function getFilenameWithoutExtension(filename: string): string {
   return extensionIndex > 0 ? filename.slice(0, extensionIndex) : filename;
 }
 
-function getPublicPath(item: ImageItem, kind: ImageKind): string {
+function getPublicPath(
+  item: ImageItem,
+  kind: ImageKind,
+  versionNumber?: number | null,
+): string {
   const employeeId = encodeURIComponent(item.employee_id);
   const sku = encodeURIComponent(item.sku);
   const filename = encodeURIComponent(
     getFilenameWithoutExtension(item.original_filename),
   );
-  const path = `/api/public/images/${employeeId}/${sku}/${filename}/${kind}`;
-  if (kind !== "processed" || !item.processed_at) return path;
+  const base = `/api/public/images/${item.id}/${employeeId}/${sku}/${filename}/${kind}`;
+  if (kind === "original") return base;
 
-  return `${path}?v=${encodeURIComponent(item.processed_at)}`;
+  const version = versionNumber ?? item.current_version_number;
+  if (version) return `${base}?v=${version}`;
+  return `/api/public/images/${employeeId}/${sku}/${filename}/${kind}`;
 }
 
-function getPublicUrl(item: ImageItem, kind: ImageKind): string {
-  return new URL(getPublicPath(item, kind), window.location.origin).href;
+function getPublicUrl(
+  item: ImageItem,
+  kind: ImageKind,
+  versionNumber?: number | null,
+): string {
+  return new URL(
+    getPublicPath(item, kind, versionNumber),
+    window.location.origin,
+  ).href;
 }
 
 function resetSelectionForVisibleImages(): void {
@@ -380,6 +397,64 @@ function reprocessSelected(): void {
   openReprocessDialog(selectedManageableImages.value);
 }
 
+async function openVersions(item: ImageItem): Promise<void> {
+  versionsDrawerVisible.value = true;
+  versionsLoading.value = true;
+  versionPreviewUrl.value = "";
+  try {
+    const { data } = await apiClient.get<ImageVersion[]>(
+      `/images/${item.id}/versions`,
+    );
+    imageVersions.value = data;
+  } catch (error) {
+    ElMessage.error(getApiError(error));
+  } finally {
+    versionsLoading.value = false;
+  }
+}
+
+function previewVersion(item: ImageItem, version: ImageVersion): void {
+  versionPreviewUrl.value = getPublicUrl(
+    item,
+    "processed",
+    version.version_number,
+  );
+}
+
+async function copyVersionUrl(
+  item: ImageItem,
+  version: ImageVersion,
+): Promise<void> {
+  await writeUrlToClipboard(
+    getPublicUrl(item, "processed", version.version_number),
+    `已复制版本 ${version.version_number} URL`,
+  );
+}
+
+async function downloadVersion(
+  item: ImageItem,
+  version: ImageVersion,
+): Promise<void> {
+  try {
+    const { data } = await apiClient.get(
+      `/images/${item.id}/versions/${version.version_number}/file`,
+      { responseType: "blob" },
+    );
+    const url = URL.createObjectURL(data as Blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${getFilenameWithoutExtension(item.original_filename)}.v${version.version_number}.jpg`;
+    link.click();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    ElMessage.error(getApiError(error));
+  }
+}
+
+function formatFileSize(size: number): string {
+  return `${(size / 1024 / 1024).toFixed(2)} MB`;
+}
+
 async function remove(item: ImageItem): Promise<void> {
   try {
     await ElMessageBox.confirm(
@@ -633,6 +708,9 @@ onMounted(loadImages);
             >
           </div>
           <div class="detail-actions">
+            <el-button @click="openVersions(selectedImage)">
+              处理记录
+            </el-button>
             <el-button @click="copyCurrentUrl(selectedImage, 'original')">
               复制当前原图 URL
             </el-button>
@@ -682,6 +760,75 @@ onMounted(loadImages);
       </template>
       <el-empty v-else description="请选择一张图片" />
     </main>
+
+    <el-drawer v-model="versionsDrawerVisible" title="处理记录" size="620px">
+      <div v-loading="versionsLoading" class="version-history">
+        <el-empty
+          v-if="!versionsLoading && imageVersions.length === 0"
+          description="暂无版本记录；旧处理图需重新处理后才会创建版本 1"
+        />
+        <img
+          v-if="versionPreviewUrl"
+          class="version-preview"
+          :src="versionPreviewUrl"
+          alt="历史处理版本预览"
+        />
+        <div
+          v-for="version in imageVersions"
+          :key="version.id"
+          class="version-item"
+        >
+          <div>
+            <strong>
+              版本 {{ version.version_number }}
+              <el-tag
+                v-if="
+                  version.version_number ===
+                  selectedImage?.current_version_number
+                "
+                size="small"
+                type="success"
+                >当前</el-tag
+              >
+            </strong>
+            <span>{{ formatDate(version.created_at) }}</span>
+            <span>
+              {{ version.ratio_width }} : {{ version.ratio_height }} · 最小
+              {{ version.min_short_side_px }} PX
+            </span>
+            <span>
+              {{ version.output_width }} × {{ version.output_height }} ·
+              {{ formatFileSize(version.file_size) }} ·
+              {{ version.compression_setting }}
+            </span>
+          </div>
+          <div class="version-actions">
+            <el-button
+              v-if="selectedImage"
+              size="small"
+              @click="previewVersion(selectedImage, version)"
+            >
+              预览
+            </el-button>
+            <el-button
+              v-if="selectedImage"
+              size="small"
+              @click="downloadVersion(selectedImage, version)"
+            >
+              下载
+            </el-button>
+            <el-button
+              v-if="selectedImage"
+              size="small"
+              type="primary"
+              @click="copyVersionUrl(selectedImage, version)"
+            >
+              复制 URL
+            </el-button>
+          </div>
+        </div>
+      </div>
+    </el-drawer>
 
     <el-dialog
       v-model="reprocessDialogVisible"
@@ -1073,6 +1220,46 @@ onMounted(loadImages);
   color: #8490a4;
   font-size: 13px;
   line-height: 1.6;
+}
+
+.version-history {
+  display: grid;
+  gap: 14px;
+}
+
+.version-preview {
+  width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  background: #f4f6f9;
+  border-radius: 8px;
+}
+
+.version-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px;
+  border: 1px solid #e5e9f0;
+  border-radius: 8px;
+}
+
+.version-item > div:first-child {
+  display: grid;
+  gap: 6px;
+  color: #657086;
+  font-size: 13px;
+}
+
+.version-item strong {
+  color: #253047;
+}
+
+.version-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 @media (max-width: 1320px) {

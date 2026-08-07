@@ -1,12 +1,14 @@
 from datetime import datetime
 
 from celery.utils.log import get_task_logger
+from sqlalchemy import func, select
 
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.models.image import Image, ImageStatus
+from app.models.image_version import ImageVersion
 from app.models.operation_log import LogCategory, LogStatus
-from app.processing.paths import get_processed_filename
+from app.processing.paths import get_versioned_processed_filename
 from app.processing.processor import ImageProcessor
 from app.services.audit import add_operation_log
 from app.storage.local import LocalStorage
@@ -46,11 +48,22 @@ def process_image(self, image_id: int) -> dict[str, int | bool | str]:
         )
         db.commit()
 
+        latest_version = db.scalar(
+            select(func.max(ImageVersion.version_number)).where(
+                ImageVersion.image_id == image.id,
+            )
+        )
+        current_version_number = image.current_version_number or 0
+        version_number = max(latest_version or 0, current_version_number) + 1
         processed_key = storage.build_key(
             image.employee_id,
             "processed",
             image.sku,
-            get_processed_filename(image.original_filename),
+            get_versioned_processed_filename(
+                image.original_filename,
+                image.id,
+                version_number,
+            ),
         )
         try:
             result = processor.process(
@@ -61,7 +74,21 @@ def process_image(self, image_id: int) -> dict[str, int | bool | str]:
                 min_short_side_px=image.min_short_side_px,
             )
 
+            version = ImageVersion(
+                image_id=image.id,
+                version_number=version_number,
+                processed_path=processed_key,
+                ratio_width=image.target_ratio_width,
+                ratio_height=image.target_ratio_height,
+                min_short_side_px=image.min_short_side_px,
+                output_width=result.output_width,
+                output_height=result.output_height,
+                file_size=result.output_file_size,
+                compression_setting=result.compression_setting,
+            )
+            db.add(version)
             image.processed_path = processed_key
+            image.current_version_number = version_number
             image.original_width = result.original_width
             image.original_height = result.original_height
             image.processed_width = result.output_width
@@ -85,7 +112,21 @@ def process_image(self, image_id: int) -> dict[str, int | bool | str]:
                     f"reduced_for_size_limit={result.reduced_for_size_limit}"
                 ),
             )
+            db.flush()
+            expired_versions = list(
+                db.scalars(
+                    select(ImageVersion)
+                    .where(ImageVersion.image_id == image.id)
+                    .order_by(ImageVersion.version_number.desc())
+                    .offset(10)
+                ).all()
+            )
+            expired_paths = [item.processed_path for item in expired_versions]
+            for item in expired_versions:
+                db.delete(item)
             db.commit()
+            for expired_path in expired_paths:
+                storage.delete(expired_path)
 
             return {
                 "image_id": image_id,
@@ -95,6 +136,7 @@ def process_image(self, image_id: int) -> dict[str, int | bool | str]:
                 "compression_setting": result.compression_setting,
                 "enlarged": result.enlarged,
                 "reduced_for_size_limit": result.reduced_for_size_limit,
+                "version_number": version_number,
             }
         except Exception as exc:
             db.rollback()
@@ -108,7 +150,11 @@ def process_image(self, image_id: int) -> dict[str, int | bool | str]:
                 logger.exception("清理失败处理图时发生异常，image_id=%s", image_id)
             image = db.get(Image, image_id)
             if image is not None:
-                image.status = ImageStatus.FAILED
+                image.status = (
+                    ImageStatus.SUCCESS
+                    if image.processed_path
+                    else ImageStatus.FAILED
+                )
                 image.error_message = str(exc)[:2000]
                 add_operation_log(
                     db,

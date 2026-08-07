@@ -15,6 +15,7 @@ from app.api.dependencies import get_current_user
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.image import Image, ImageStatus
+from app.models.image_version import ImageVersion
 from app.models.operation_log import LogCategory, LogStatus
 from app.models.user import User, UserRole
 from app.processing.paths import get_processed_filename
@@ -22,6 +23,7 @@ from app.schemas.image import (
     ImagePageResponse,
     ImageReprocessRequest,
     ImageResponse,
+    ImageVersionResponse,
     UploadFileResult,
     UploadResponse,
 )
@@ -319,6 +321,50 @@ def download_image(
     )
 
 
+@router.get("/{image_id}/versions", response_model=list[ImageVersionResponse])
+def list_image_versions(
+    image_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[ImageVersion]:
+    _get_accessible_image(image_id, current_user, db)
+    return list(
+        db.scalars(
+            select(ImageVersion)
+            .where(ImageVersion.image_id == image_id)
+            .order_by(ImageVersion.version_number.desc())
+            .limit(10)
+        ).all()
+    )
+
+
+@router.get("/{image_id}/versions/{version_number}/file")
+def download_image_version(
+    image_id: int,
+    version_number: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    image = _get_accessible_image(image_id, current_user, db)
+    version = db.scalar(
+        select(ImageVersion).where(
+            ImageVersion.image_id == image_id,
+            ImageVersion.version_number == version_number,
+        )
+    )
+    if version is None:
+        raise HTTPException(status_code=404, detail="处理版本不存在")
+    path = _storage.get_local_path(version.processed_path)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="处理版本文件不存在")
+    return FileResponse(
+        path=path,
+        media_type="image/jpeg",
+        filename=get_processed_filename(image.original_filename),
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
+
+
 @router.post("/{image_id}/retry", response_model=ImageResponse)
 def retry_image(
     image_id: int,
@@ -329,31 +375,27 @@ def retry_image(
     image = _get_manageable_image(image_id, current_user, db)
     if image.status in {ImageStatus.PENDING, ImageStatus.PROCESSING}:
         raise HTTPException(status_code=409, detail="图片任务正在处理中")
-    new_processed_key = _storage.build_key(
-        image.employee_id,
-        "processed",
-        image.sku,
-        get_processed_filename(image.original_filename),
-    )
-    keys_to_remove = {new_processed_key}
-    if image.processed_path:
-        keys_to_remove.add(image.processed_path)
-    old_format_key = _storage.build_key(
-        image.employee_id,
-        "processed",
-        image.sku,
-        image.original_filename,
-    )
-    keys_to_remove.add(old_format_key)
-    for processed_key in keys_to_remove:
-        _remove_incomplete_processed_file(processed_key)
+    if image.current_version_number is None:
+        legacy_keys = {
+            _storage.build_key(
+                image.employee_id,
+                "processed",
+                image.sku,
+                get_processed_filename(image.original_filename),
+            ),
+            _storage.build_key(
+                image.employee_id,
+                "processed",
+                image.sku,
+                image.original_filename,
+            ),
+        }
+        for processed_key in legacy_keys:
+            if processed_key != image.processed_path:
+                _remove_incomplete_processed_file(processed_key)
     image.target_ratio_width = payload.ratio_width
     image.target_ratio_height = payload.ratio_height
     image.min_short_side_px = payload.min_short_side_px
-    image.processed_path = None
-    image.processed_width = None
-    image.processed_height = None
-    image.processed_at = None
     image.status = ImageStatus.PENDING
     image.error_message = None
     add_operation_log(
@@ -400,7 +442,9 @@ def delete_image(
 ) -> None:
     image = _get_manageable_image(image_id, current_user, db)
     original_path = image.original_path
-    processed_path = image.processed_path
+    processed_paths = {item.processed_path for item in image.versions}
+    if image.processed_path:
+        processed_paths.add(image.processed_path)
     add_operation_log(
         db,
         category=LogCategory.IMAGE,
@@ -414,5 +458,5 @@ def delete_image(
     db.delete(image)
     db.commit()
     _storage.delete(original_path)
-    if processed_path:
+    for processed_path in processed_paths:
         _storage.delete(processed_path)

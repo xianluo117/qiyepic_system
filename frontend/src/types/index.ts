@@ -12,6 +12,20 @@ export interface User {
 
 export type ImageStatus = "pending" | "processing" | "success" | "failed";
 
+export interface ImageVersion {
+  id: number;
+  image_id: number;
+  version_number: number;
+  ratio_width: number;
+  ratio_height: number;
+  min_short_side_px: number;
+  output_width: number;
+  output_height: number;
+  file_size: number;
+  compression_setting: string;
+  created_at: string;
+}
+
 export interface ImageItem {
   id: number;
   employee_id: string;
@@ -24,6 +38,7 @@ export interface ImageItem {
   original_height: number | null;
   processed_width: number | null;
   processed_height: number | null;
+  current_version_number: number | null;
   file_size: number;
   content_type: string;
   status: ImageStatus;

@@ -62,7 +62,6 @@ def upgrade() -> None:
                 "version_number",
                 name="uq_image_versions_image_version",
             ),
-            sa.UniqueConstraint("processed_path"),
         )
 
     inspector = inspect(connection)

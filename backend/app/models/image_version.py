@@ -30,7 +30,7 @@ class ImageVersion(Base):
         index=True,
     )
     version_number: Mapped[int] = mapped_column(Integer)
-    processed_path: Mapped[str] = mapped_column(String(1024), unique=True)
+    processed_path: Mapped[str] = mapped_column(String(1024))
     ratio_width: Mapped[int] = mapped_column(Integer)
     ratio_height: Mapped[int] = mapped_column(Integer)
     min_short_side_px: Mapped[int] = mapped_column(Integer)

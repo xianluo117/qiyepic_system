@@ -4,7 +4,9 @@ from pathlib import Path
 import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from sqlalchemy import inspect
+from sqlalchemy import UniqueConstraint, inspect
+
+from app.models.image_version import ImageVersion
 
 MIGRATION_PATH = (
     Path(__file__).parents[2]
@@ -61,11 +63,20 @@ def test_upgrade_recovers_when_column_already_exists_but_table_does_not() -> Non
         indexes = {
             index["name"] for index in inspector.get_indexes("image_versions")
         }
+        unique_constraints = {
+            constraint["name"]: tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints("image_versions")
+        }
 
     assert "current_version_number" in image_columns
     assert "image_versions" in table_names
     assert "ix_image_versions_image_id" in indexes
     assert "ix_image_versions_created_at" in indexes
+    assert unique_constraints["uq_image_versions_image_version"] == (
+        "image_id",
+        "version_number",
+    )
+    assert ("processed_path",) not in unique_constraints.values()
 
 
 def test_upgrade_is_idempotent_after_all_objects_exist() -> None:
@@ -83,3 +94,17 @@ def test_upgrade_is_idempotent_after_all_objects_exist() -> None:
 
     assert image_columns.count("current_version_number") == 1
     assert table_names.count("image_versions") == 1
+
+
+def test_model_does_not_create_unique_index_for_long_processed_path() -> None:
+    processed_path = ImageVersion.__table__.columns["processed_path"]
+    unique_constraints = {
+        tuple(column.name for column in constraint.columns)
+        for constraint in ImageVersion.__table__.constraints
+        if isinstance(constraint, UniqueConstraint)
+    }
+
+    assert processed_path.type.length == 1024
+    assert processed_path.unique is not True
+    assert ("processed_path",) not in unique_constraints
+    assert ("image_id", "version_number") in unique_constraints

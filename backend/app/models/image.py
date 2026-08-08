@@ -6,6 +6,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -33,12 +34,24 @@ class Image(Base):
             "normalized_filename",
             name="uq_images_employee_sku_filename",
         ),
+        Index("ix_images_owner_created_id", "owner_id", "created_at", "id"),
+        Index("ix_images_owner_sku_created_id", "owner_id", "sku", "created_at", "id"),
+        Index("ix_images_employee_created_id", "employee_id", "created_at", "id"),
+        Index(
+            "ix_images_employee_sku_created_id",
+            "employee_id",
+            "sku",
+            "created_at",
+            "id",
+        ),
+        Index("ix_images_status_created_id", "status", "created_at", "id"),
+        Index("ix_images_sku_created_id", "sku", "created_at", "id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    employee_id: Mapped[str] = mapped_column(String(64), index=True)
-    sku: Mapped[str] = mapped_column(String(128), index=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    employee_id: Mapped[str] = mapped_column(String(64))
+    sku: Mapped[str] = mapped_column(String(128))
     original_filename: Mapped[str] = mapped_column(String(255))
     normalized_filename: Mapped[str] = mapped_column(String(255))
     original_path: Mapped[str] = mapped_column(String(1024))
@@ -56,7 +69,6 @@ class Image(Base):
     status: Mapped[ImageStatus] = mapped_column(
         Enum(ImageStatus, native_enum=False, length=16),
         default=ImageStatus.PENDING,
-        index=True,
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)

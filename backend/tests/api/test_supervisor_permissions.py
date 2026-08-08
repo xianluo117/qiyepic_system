@@ -130,6 +130,18 @@ def test_supervisor_lists_only_self_and_team_images() -> None:
     assert employee_ids == {"S001", "E001"}
 
 
+def test_supervisor_sku_options_include_only_self_and_team() -> None:
+    with TestClient(app) as client:
+        all_options = client.get("/api/images/skus")
+        member_options = client.get("/api/images/skus?employee_id=E001")
+        outsider_options = client.get("/api/images/skus?employee_id=E002")
+
+    assert all_options.status_code == 200
+    assert all_options.json() == ["SKU-1", "SKU-2"]
+    assert member_options.json() == ["SKU-2"]
+    assert outsider_options.json() == []
+
+
 def test_supervisor_can_read_and_download_team_image_but_cannot_modify_it() -> None:
     with TestClient(app) as client:
         detail = client.get("/api/images/2")
@@ -197,6 +209,17 @@ def test_supervisor_can_reprocess_own_successful_image() -> None:
     assert not new_processed_path.exists()
     assert not new_processed_path.with_name(".image-1.jpg.processing").exists()
     delay.assert_called_once_with(1)
+
+
+def test_deleting_own_image_removes_thumbnail_cache() -> None:
+    thumbnail_path = image_routes._thumbnails.get_path(1)
+    thumbnail_path.write_bytes(b"cached-thumbnail")
+
+    with TestClient(app) as client:
+        response = client.delete("/api/images/1")
+
+    assert response.status_code == 204
+    assert not thumbnail_path.exists()
 
 
 def test_processed_download_uses_jpeg_filename_and_disables_cache() -> None:

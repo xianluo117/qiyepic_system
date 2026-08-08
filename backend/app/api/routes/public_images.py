@@ -10,10 +10,12 @@ from app.core.database import get_db
 from app.models.image import Image
 from app.models.image_version import ImageVersion
 from app.processing.paths import get_processed_filename
+from app.services.thumbnail_service import ThumbnailService
 from app.storage.local import LocalStorage
 
 router = APIRouter()
 _storage = LocalStorage(settings.image_root)
+_thumbnails = ThumbnailService(settings.image_root)
 _IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
 _NO_CACHE = "no-store, no-cache, must-revalidate, max-age=0"
 
@@ -47,6 +49,28 @@ def _file_response(
         filename=filename,
         content_disposition_type="inline",
         headers={"Cache-Control": cache_control},
+    )
+
+
+@router.get("/images/{image_id}/thumbnail")
+def read_public_thumbnail(
+    image_id: int,
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    image = db.get(Image, image_id)
+    if image is None:
+        raise HTTPException(status_code=404, detail="公开图片不存在或链接已失效")
+
+    source_path = _storage.get_local_path(image.original_path)
+    if not source_path.is_file():
+        raise HTTPException(status_code=404, detail="图片文件不存在")
+
+    thumbnail_path = _thumbnails.get_or_create(image.id, source_path)
+    return FileResponse(
+        path=thumbnail_path,
+        media_type="image/jpeg",
+        content_disposition_type="inline",
+        headers={"Cache-Control": _IMMUTABLE_CACHE},
     )
 
 

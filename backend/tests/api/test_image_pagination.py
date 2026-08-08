@@ -126,6 +126,29 @@ def test_image_list_supports_sort_fields_and_directions() -> None:
     assert created_at_ascending.status_code == 200
 
 
+def test_image_list_filters_sku_by_exact_value() -> None:
+    with TestClient(app) as client:
+        exact = client.get("/api/images?sku=SKU-005")
+        partial = client.get("/api/images?sku=SKU-00")
+
+    assert exact.status_code == 200
+    assert exact.json()["total"] == 1
+    assert exact.json()["items"][0]["sku"] == "SKU-005"
+    assert partial.status_code == 200
+    assert partial.json()["total"] == 0
+
+
+def test_sku_options_are_distinct_prefix_filtered_and_limited() -> None:
+    with TestClient(app) as client:
+        prefixed = client.get("/api/images/skus?keyword=SKU-00")
+        limited = client.get("/api/images/skus?limit=5")
+
+    assert prefixed.status_code == 200
+    assert prefixed.json() == [f"SKU-{index:03d}" for index in range(10)]
+    assert limited.status_code == 200
+    assert limited.json() == [f"SKU-{index:03d}" for index in range(5)]
+
+
 def test_image_list_rejects_unsupported_sort_values() -> None:
     with TestClient(app) as client:
         invalid_field = client.get("/api/images?sort_by=employee_id")

@@ -13,6 +13,9 @@ type SortOrder = "asc" | "desc";
 const auth = useAuth();
 const loading = ref(false);
 const images = ref<ImageItem[]>([]);
+const skuOptions = ref<string[]>([]);
+const skuOptionsLoading = ref(false);
+const skuRequestId = ref(0);
 const totalImages = ref(0);
 const currentPage = ref(1);
 const pageSize = ref(50);
@@ -114,6 +117,10 @@ function getPublicPath(
   return `/api/public/images/${employeeId}/${sku}/${filename}/${kind}`;
 }
 
+function getThumbnailPath(item: ImageItem): string {
+  return `/api/public/images/${item.id}/thumbnail`;
+}
+
 function getPublicUrl(
   item: ImageItem,
   kind: ImageKind,
@@ -123,6 +130,38 @@ function getPublicUrl(
     getPublicPath(item, kind, versionNumber),
     window.location.origin,
   ).href;
+}
+
+async function loadSkuOptions(keyword = ""): Promise<void> {
+  const requestId = ++skuRequestId.value;
+  skuOptionsLoading.value = true;
+  try {
+    const params: Record<string, string> = {};
+    if (keyword.trim()) params.keyword = keyword.trim();
+    if (filters.employee_id.trim()) {
+      params.employee_id = filters.employee_id.trim();
+    }
+    const { data } = await apiClient.get<string[]>("/images/skus", { params });
+    if (requestId !== skuRequestId.value) return;
+    skuOptions.value =
+      filters.sku && !data.includes(filters.sku)
+        ? [filters.sku, ...data]
+        : data;
+  } catch (error) {
+    if (requestId === skuRequestId.value) {
+      ElMessage.error(getApiError(error));
+    }
+  } finally {
+    if (requestId === skuRequestId.value) {
+      skuOptionsLoading.value = false;
+    }
+  }
+}
+
+async function handleEmployeeFilterChange(): Promise<void> {
+  filters.employee_id = filters.employee_id.trim();
+  filters.sku = "";
+  await loadSkuOptions();
 }
 
 function resetSelectionForVisibleImages(): void {
@@ -485,7 +524,9 @@ function formatDate(value: string): string {
   }).format(new Date(value));
 }
 
-onMounted(loadImages);
+onMounted(async () => {
+  await Promise.all([loadImages(), loadSkuOptions()]);
+});
 </script>
 
 <template>
@@ -511,11 +552,32 @@ onMounted(loadImages);
           v-if="auth.isAdmin.value || auth.isSupervisor.value"
           label="员工 ID"
         >
-          <el-input v-model="filters.employee_id" clearable />
+          <el-input
+            v-model="filters.employee_id"
+            clearable
+            @change="handleEmployeeFilterChange"
+          />
         </el-form-item>
         <div class="filter-row">
           <el-form-item label="货号">
-            <el-input v-model="filters.sku" clearable />
+            <el-select
+              v-model="filters.sku"
+              clearable
+              filterable
+              remote
+              reserve-keyword
+              :remote-method="loadSkuOptions"
+              :loading="skuOptionsLoading"
+              placeholder="选择已有货号"
+              @visible-change="$event && loadSkuOptions()"
+            >
+              <el-option
+                v-for="sku in skuOptions"
+                :key="sku"
+                :label="sku"
+                :value="sku"
+              />
+            </el-select>
           </el-form-item>
           <el-form-item label="文件名">
             <el-input v-model="filters.filename" clearable />
@@ -614,9 +676,10 @@ onMounted(loadImages);
           ></span>
           <div class="thumbnail-image-wrap">
             <img
-              :src="getPublicPath(item, 'original')"
+              :src="getThumbnailPath(item)"
               :alt="item.original_filename"
               loading="lazy"
+              decoding="async"
             />
           </div>
           <div class="thumbnail-info">
@@ -931,6 +994,10 @@ onMounted(loadImages);
 
 .gallery-filters :deep(.el-form-item) {
   margin-bottom: 10px;
+}
+
+.gallery-filters :deep(.el-select) {
+  width: 100%;
 }
 
 .filter-row {

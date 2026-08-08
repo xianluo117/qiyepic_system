@@ -10,6 +10,7 @@ os.environ.setdefault("DATABASE_URL_OVERRIDE", "sqlite+pysqlite:///:memory:")
 os.environ.setdefault("IMAGE_ROOT", str(Path(__file__).parent / ".public-image-data"))
 
 from fastapi.testclient import TestClient
+from PIL import Image as PillowImage
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -186,6 +187,54 @@ def test_versioned_public_url_reads_requested_immutable_version() -> None:
     assert processed.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert missing_version.status_code == 404
     assert mismatched.status_code == 404
+
+
+def test_public_thumbnail_is_generated_cached_and_invalidated_by_database() -> None:
+    with Session(engine) as session:
+        image = create_image(session, "006", processed=False)
+        source_path = public_images._storage.get_local_path(image.original_path)
+        PillowImage.new("RGBA", (900, 450), (0, 0, 255, 0)).save(
+            source_path,
+            format="PNG",
+        )
+        image.content_type = "image/png"
+        session.commit()
+        image_id = image.id
+
+    with TestClient(app) as client:
+        first = client.get(f"/api/public/images/{image_id}/thumbnail")
+        cached_path = public_images._thumbnails.get_path(image_id)
+        first_mtime = cached_path.stat().st_mtime_ns
+        second = client.get(f"/api/public/images/{image_id}/thumbnail")
+
+    assert first.status_code == 200
+    assert first.headers["content-type"] == "image/jpeg"
+    assert first.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert second.content == first.content
+    assert cached_path.stat().st_mtime_ns == first_mtime
+
+    thumbnail_copy = Path(__file__).parent / ".thumbnail-copy.jpg"
+    thumbnail_copy.write_bytes(first.content)
+    try:
+        with PillowImage.open(thumbnail_copy) as thumbnail:
+            assert thumbnail.size == (360, 180)
+            red, green, blue = thumbnail.getpixel((180, 90))
+            assert red >= 245
+            assert green >= 245
+            assert blue >= 245
+    finally:
+        thumbnail_copy.unlink(missing_ok=True)
+
+    with Session(engine) as session:
+        stored = session.get(Image, image_id)
+        assert stored is not None
+        session.delete(stored)
+        session.commit()
+
+    with TestClient(app) as client:
+        deleted = client.get(f"/api/public/images/{image_id}/thumbnail")
+
+    assert deleted.status_code == 404
 
 
 def test_public_descriptive_link_stops_working_after_image_is_deleted() -> None:

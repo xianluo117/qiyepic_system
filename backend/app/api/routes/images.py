@@ -28,11 +28,14 @@ from app.schemas.image import (
     UploadResponse,
 )
 from app.services.audit import add_operation_log
+from app.services.image_queries import apply_image_access_scope
+from app.services.thumbnail_service import ThumbnailService
 from app.storage.local import LocalStorage
 from worker.tasks.image_tasks import process_image
 
 router = APIRouter()
 _storage = LocalStorage(settings.image_root)
+_thumbnails = ThumbnailService(settings.image_root)
 _SKU_PATTERN = re.compile(r"^[^/\\\x00-\x1f]+$")
 
 
@@ -112,26 +115,16 @@ def list_images(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ImagePageResponse:
-    query = select(Image)
-    if current_user.role == UserRole.EMPLOYEE:
-        query = query.where(Image.owner_id == current_user.id)
-    elif current_user.role == UserRole.SUPERVISOR:
-        team_member_ids = select(User.id).where(User.supervisor_id == current_user.id)
-        query = query.where(
-            (Image.owner_id == current_user.id) | Image.owner_id.in_(team_member_ids),
-        )
-        if employee_id:
-            query = query.where(Image.employee_id == employee_id)
-    elif employee_id:
-        query = query.where(Image.employee_id == employee_id)
+    query = apply_image_access_scope(select(Image), current_user, employee_id)
     if sku:
-        query = query.where(Image.sku.contains(sku.strip()))
+        query = query.where(Image.sku == sku.strip())
     if filename:
         query = query.where(Image.original_filename.contains(filename.strip()))
     if image_status:
         query = query.where(Image.status == image_status)
 
-    total = db.scalar(select(func.count()).select_from(query.subquery())) or 0
+    total_query = query.with_only_columns(func.count(Image.id)).order_by(None)
+    total = db.scalar(total_query) or 0
     sort_columns = {
         "created_at": Image.created_at,
         "sku": Image.sku,
@@ -151,6 +144,26 @@ def list_images(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/skus", response_model=list[str])
+def list_image_skus(
+    keyword: str | None = Query(default=None, max_length=128),
+    employee_id: str | None = None,
+    limit: int = Query(default=50, ge=1, le=50),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[str]:
+    query = apply_image_access_scope(
+        select(Image.sku).distinct(),
+        current_user,
+        employee_id,
+    )
+    normalized_keyword = keyword.strip() if keyword else ""
+    if normalized_keyword:
+        query = query.where(Image.sku.startswith(normalized_keyword, autoescape=True))
+    query = query.order_by(Image.sku.asc()).limit(limit)
+    return list(db.scalars(query).all())
 
 
 @router.post("/upload", response_model=UploadResponse)
@@ -458,5 +471,6 @@ def delete_image(
     db.delete(image)
     db.commit()
     _storage.delete(original_path)
+    _thumbnails.delete(image_id)
     for processed_path in processed_paths:
         _storage.delete(processed_path)

@@ -189,6 +189,35 @@ def test_versioned_public_url_reads_requested_immutable_version() -> None:
     assert mismatched.status_code == 404
 
 
+def test_public_url_without_image_id_reads_requested_version() -> None:
+    with Session(engine) as session:
+        image = create_image(session, "007", processed=False)
+        create_version(session, image, version_number=1)
+        create_version(session, image, version_number=2)
+
+    with TestClient(app) as client:
+        base_url = "/api/public/images/E007/SKU/007"
+        original = client.get(f"{base_url}/original")
+        version_one = client.get(f"{base_url}/processed?v=1")
+        version_two = client.get(f"{base_url}/processed?v=2")
+        missing_version = client.get(f"{base_url}/processed?v=3")
+        missing_parameter = client.get(f"{base_url}/processed")
+
+    assert original.status_code == 200
+    assert original.headers["cache-control"] == (
+        "no-store, no-cache, must-revalidate, max-age=0"
+    )
+    assert version_one.status_code == 200
+    assert version_one.content == b"version-1"
+    assert version_one.headers["cache-control"] == (
+        "no-store, no-cache, must-revalidate, max-age=0"
+    )
+    assert version_two.status_code == 200
+    assert version_two.content == b"version-2"
+    assert missing_version.status_code == 404
+    assert missing_parameter.status_code == 422
+
+
 def test_public_thumbnail_is_generated_cached_and_invalidated_by_database() -> None:
     with Session(engine) as session:
         image = create_image(session, "006", processed=False)
@@ -258,8 +287,10 @@ def test_all_versioned_public_links_stop_working_after_image_is_deleted() -> Non
         session.commit()
 
     with TestClient(app) as client:
-        response = client.get(
+        versioned = client.get(
             f"/api/public/images/{image_id}/E005/SKU/005/processed?v=1"
         )
+        descriptive = client.get("/api/public/images/E005/SKU/005/processed?v=1")
 
-    assert response.status_code == 404
+    assert versioned.status_code == 404
+    assert descriptive.status_code == 404

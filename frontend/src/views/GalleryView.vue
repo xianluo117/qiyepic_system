@@ -109,12 +109,12 @@ function getPublicPath(
   const filename = encodeURIComponent(
     getFilenameWithoutExtension(item.original_filename),
   );
-  const base = `/api/public/images/${item.id}/${employeeId}/${sku}/${filename}/${kind}`;
+  const base = `/api/public/images/${employeeId}/${sku}/${filename}/${kind}`;
   if (kind === "original") return base;
 
   const version = versionNumber ?? item.current_version_number;
   if (version) return `${base}?v=${version}`;
-  return `/api/public/images/${employeeId}/${sku}/${filename}/${kind}`;
+  return base;
 }
 
 function getThumbnailPath(item: ImageItem): string {

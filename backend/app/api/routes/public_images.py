@@ -123,6 +123,7 @@ def read_legacy_public_image(
     sku: str,
     filename: str,
     kind: str,
+    version_number: int | None = Query(default=None, alias="v", ge=1),
     db: Session = Depends(get_db),
 ) -> FileResponse:
     candidates = db.scalars(
@@ -147,11 +148,28 @@ def read_legacy_public_image(
         media_type = image.content_type
         filename_for_response = image.original_filename
     elif kind == "processed":
-        if image.current_version_number is not None:
-            raise HTTPException(status_code=404, detail="旧处理图链接已失效")
-        key = image.processed_path
-        if not key:
-            raise HTTPException(status_code=404, detail="处理图尚未生成")
+        if version_number is not None:
+            version = db.scalar(
+                select(ImageVersion).where(
+                    ImageVersion.image_id == image.id,
+                    ImageVersion.version_number == version_number,
+                )
+            )
+            if version is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="处理版本不存在或链接已失效",
+                )
+            key = version.processed_path
+        else:
+            if image.current_version_number is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="处理图链接必须包含版本参数 v",
+                )
+            key = image.processed_path
+            if not key:
+                raise HTTPException(status_code=404, detail="处理图尚未生成")
         media_type = "image/jpeg"
         filename_for_response = get_processed_filename(image.original_filename)
     else:

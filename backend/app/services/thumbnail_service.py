@@ -20,6 +20,7 @@ class ThumbnailService:
         if target.is_file():
             return target
 
+        target.parent.mkdir(parents=True, exist_ok=True)
         temporary = target.with_name(
             f".{target.name}.{os.getpid()}.{uuid4().hex}.generating"
         )

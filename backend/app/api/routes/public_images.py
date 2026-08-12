@@ -11,6 +11,7 @@ from app.models.image import Image
 from app.models.image_version import ImageVersion
 from app.processing.paths import get_processed_filename
 from app.services.thumbnail_service import ThumbnailService
+from app.services.version_revision import revision_to_version_number
 from app.storage.local import LocalStorage
 
 router = APIRouter()
@@ -74,6 +75,20 @@ def read_public_thumbnail(
     )
 
 
+def _resolve_version_number(
+    revision: str | None,
+    legacy_version_number: int | None,
+) -> int | None:
+    if revision is not None and legacy_version_number is not None:
+        raise HTTPException(status_code=400, detail="修订标识 rev 与旧版本参数 v 不能同时使用")
+    if revision is None:
+        return legacy_version_number
+    try:
+        return revision_to_version_number(revision)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.get("/images/{image_id}/{employee_id}/{sku}/{filename}/{kind}")
 def read_versioned_public_image(
     image_id: int,
@@ -81,7 +96,8 @@ def read_versioned_public_image(
     sku: str,
     filename: str,
     kind: str,
-    version_number: int | None = Query(default=None, alias="v", ge=1),
+    revision: str | None = Query(default=None, alias="rev"),
+    legacy_version_number: int | None = Query(default=None, alias="v", ge=1),
     db: Session = Depends(get_db),
 ) -> FileResponse:
     image = db.get(Image, image_id)
@@ -98,8 +114,9 @@ def read_versioned_public_image(
         )
     if kind != "processed":
         raise HTTPException(status_code=400, detail="图片类型必须是 original 或 processed")
+    version_number = _resolve_version_number(revision, legacy_version_number)
     if version_number is None:
-        raise HTTPException(status_code=422, detail="处理图链接必须包含版本参数 v")
+        raise HTTPException(status_code=422, detail="处理图链接必须包含修订参数 rev")
 
     version = db.scalar(
         select(ImageVersion).where(
@@ -123,7 +140,8 @@ def read_legacy_public_image(
     sku: str,
     filename: str,
     kind: str,
-    version_number: int | None = Query(default=None, alias="v", ge=1),
+    revision: str | None = Query(default=None, alias="rev"),
+    legacy_version_number: int | None = Query(default=None, alias="v", ge=1),
     db: Session = Depends(get_db),
 ) -> FileResponse:
     candidates = db.scalars(
@@ -148,6 +166,7 @@ def read_legacy_public_image(
         media_type = image.content_type
         filename_for_response = image.original_filename
     elif kind == "processed":
+        version_number = _resolve_version_number(revision, legacy_version_number)
         if version_number is not None:
             version = db.scalar(
                 select(ImageVersion).where(
@@ -165,7 +184,7 @@ def read_legacy_public_image(
             if image.current_version_number is not None:
                 raise HTTPException(
                     status_code=422,
-                    detail="处理图链接必须包含版本参数 v",
+                    detail="处理图链接必须包含修订参数 rev",
                 )
             key = image.processed_path
             if not key:

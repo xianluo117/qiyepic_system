@@ -21,6 +21,7 @@ from app.main import app
 from app.models.image import Image, ImageStatus
 from app.models.image_version import ImageVersion
 from app.models.user import User, UserRole
+from app.services.version_revision import version_number_to_revision
 
 engine = create_engine(
     "sqlite+pysqlite:///:memory:",
@@ -166,27 +167,33 @@ def test_public_image_rejects_unknown_employee_mismatched_path_and_missing_file(
     assert missing_processed.status_code == 404
 
 
-def test_versioned_public_url_reads_requested_immutable_version() -> None:
+def test_versioned_public_url_reads_requested_immutable_revision() -> None:
     with Session(engine) as session:
         image = create_image(session, "004", processed=False)
         create_version(session, image)
         image_id = image.id
 
+    revision_one = version_number_to_revision(1)
+    revision_two = version_number_to_revision(2)
     with TestClient(app) as client:
         base_url = f"/api/public/images/{image_id}/E004/SKU/004"
         original = client.get(f"{base_url}/original")
-        processed = client.get(f"{base_url}/processed?v=1")
-        missing_version = client.get(f"{base_url}/processed?v=2")
+        processed = client.get(f"{base_url}/processed?rev={revision_one}")
+        missing_version = client.get(f"{base_url}/processed?rev={revision_two}")
         mismatched = client.get(
-            f"/api/public/images/{image_id}/WRONG/SKU/004/processed?v=1"
+            f"/api/public/images/{image_id}/WRONG/SKU/004/processed?rev={revision_one}"
         )
+        legacy = client.get(f"{base_url}/processed?v=1")
 
+    assert revision_one == "abcd"
     assert original.status_code == 200
     assert processed.status_code == 200
     assert processed.content == b"version-1"
     assert processed.headers["cache-control"] == "public, max-age=31536000, immutable"
     assert missing_version.status_code == 404
     assert mismatched.status_code == 404
+    assert legacy.status_code == 200
+    assert legacy.content == b"version-1"
 
 
 def test_public_url_without_image_id_reads_requested_version() -> None:
@@ -195,11 +202,12 @@ def test_public_url_without_image_id_reads_requested_version() -> None:
         create_version(session, image, version_number=1)
         create_version(session, image, version_number=2)
 
+    revision_two = version_number_to_revision(2)
     with TestClient(app) as client:
         base_url = "/api/public/images/E007/SKU/007"
         original = client.get(f"{base_url}/original")
         version_one = client.get(f"{base_url}/processed?v=1")
-        version_two = client.get(f"{base_url}/processed?v=2")
+        version_two = client.get(f"{base_url}/processed?rev={revision_two}")
         missing_version = client.get(f"{base_url}/processed?v=3")
         missing_parameter = client.get(f"{base_url}/processed")
 
@@ -216,6 +224,25 @@ def test_public_url_without_image_id_reads_requested_version() -> None:
     assert version_two.content == b"version-2"
     assert missing_version.status_code == 404
     assert missing_parameter.status_code == 422
+
+
+def test_public_processed_url_rejects_invalid_or_conflicting_revision_parameters() -> None:
+    with Session(engine) as session:
+        image = create_image(session, "008", processed=False)
+        create_version(session, image)
+        image_id = image.id
+
+    with TestClient(app) as client:
+        base_url = f"/api/public/images/{image_id}/E008/SKU/008/processed"
+        invalid = client.get(f"{base_url}?rev=ab1d")
+        uppercase = client.get(f"{base_url}?rev=ABCD")
+        conflicting = client.get(f"{base_url}?rev=abcd&v=1")
+        missing = client.get(base_url)
+
+    assert invalid.status_code == 422
+    assert uppercase.status_code == 422
+    assert conflicting.status_code == 400
+    assert missing.status_code == 422
 
 
 def test_public_thumbnail_is_generated_cached_and_invalidated_by_database() -> None:
@@ -286,11 +313,14 @@ def test_all_versioned_public_links_stop_working_after_image_is_deleted() -> Non
         session.delete(image)
         session.commit()
 
+    revision = version_number_to_revision(1)
     with TestClient(app) as client:
         versioned = client.get(
-            f"/api/public/images/{image_id}/E005/SKU/005/processed?v=1"
+            f"/api/public/images/{image_id}/E005/SKU/005/processed?rev={revision}"
         )
-        descriptive = client.get("/api/public/images/E005/SKU/005/processed?v=1")
+        descriptive = client.get(
+            f"/api/public/images/E005/SKU/005/processed?rev={revision}"
+        )
 
     assert versioned.status_code == 404
     assert descriptive.status_code == 404

@@ -1,8 +1,9 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from app.models.image import ImageStatus
+from app.services.version_revision import version_number_to_revision
 
 
 class ImageVersionResponse(BaseModel):
@@ -19,6 +20,11 @@ class ImageVersionResponse(BaseModel):
     file_size: int
     compression_setting: str
     created_at: datetime
+
+    @computed_field
+    @property
+    def revision(self) -> str:
+        return version_number_to_revision(self.version_number)
 
 
 class ImageResponse(BaseModel):
@@ -42,6 +48,13 @@ class ImageResponse(BaseModel):
     error_message: str | None
     created_at: datetime
     processed_at: datetime | None
+
+    @computed_field
+    @property
+    def current_revision(self) -> str | None:
+        if self.current_version_number is None:
+            return None
+        return version_number_to_revision(self.current_version_number)
 
 
 class ImageReprocessRequest(BaseModel):

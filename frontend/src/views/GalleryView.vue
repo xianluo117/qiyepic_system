@@ -102,18 +102,21 @@ function getFilenameWithoutExtension(filename: string): string {
 function getPublicPath(
   item: ImageItem,
   kind: ImageKind,
-  versionNumber?: number | null,
+  revision?: string | null,
 ): string {
+  const imageId = encodeURIComponent(String(item.id));
   const employeeId = encodeURIComponent(item.employee_id);
   const sku = encodeURIComponent(item.sku);
   const filename = encodeURIComponent(
     getFilenameWithoutExtension(item.original_filename),
   );
-  const base = `/api/public/images/${employeeId}/${sku}/${filename}/${kind}`;
+  const base = `/api/public/images/${imageId}/${employeeId}/${sku}/${filename}/${kind}`;
   if (kind === "original") return base;
 
-  const version = versionNumber ?? item.current_version_number;
-  if (version) return `${base}?v=${version}`;
+  const resolvedRevision = revision ?? item.current_revision;
+  if (resolvedRevision) {
+    return `${base}?rev=${encodeURIComponent(resolvedRevision)}`;
+  }
   return base;
 }
 
@@ -124,12 +127,10 @@ function getThumbnailPath(item: ImageItem): string {
 function getPublicUrl(
   item: ImageItem,
   kind: ImageKind,
-  versionNumber?: number | null,
+  revision?: string | null,
 ): string {
-  return new URL(
-    getPublicPath(item, kind, versionNumber),
-    window.location.origin,
-  ).href;
+  return new URL(getPublicPath(item, kind, revision), window.location.origin)
+    .href;
 }
 
 async function loadSkuOptions(keyword = ""): Promise<void> {
@@ -453,11 +454,7 @@ async function openVersions(item: ImageItem): Promise<void> {
 }
 
 function previewVersion(item: ImageItem, version: ImageVersion): void {
-  versionPreviewUrl.value = getPublicUrl(
-    item,
-    "processed",
-    version.version_number,
-  );
+  versionPreviewUrl.value = getPublicUrl(item, "processed", version.revision);
 }
 
 async function copyVersionUrl(
@@ -465,7 +462,7 @@ async function copyVersionUrl(
   version: ImageVersion,
 ): Promise<void> {
   await writeUrlToClipboard(
-    getPublicUrl(item, "processed", version.version_number),
+    getPublicUrl(item, "processed", version.revision),
     `已复制版本 ${version.version_number} URL`,
   );
 }

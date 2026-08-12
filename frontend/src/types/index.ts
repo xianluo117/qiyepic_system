@@ -16,6 +16,7 @@ export interface ImageVersion {
   id: number;
   image_id: number;
   version_number: number;
+  revision: string;
   ratio_width: number;
   ratio_height: number;
   min_short_side_px: number;
@@ -39,6 +40,7 @@ export interface ImageItem {
   processed_width: number | null;
   processed_height: number | null;
   current_version_number: number | null;
+  current_revision: string | null;
   file_size: number;
   content_type: string;
   status: ImageStatus;

@@ -161,6 +161,9 @@ def read_legacy_public_image(
         raise HTTPException(status_code=409, detail="存在多个同名但扩展名不同的图片")
     image = matches[0]
 
+    # 无 ID 的描述路径是表格批量递归编辑所需的正式业务 URL。
+    # 只有纯字母 rev 能唯一指向不可变版本，因此可安全使用长期缓存；旧 v 链接继续禁用缓存。
+    cache_control = _NO_CACHE
     if kind == "original":
         key = image.original_path
         media_type = image.content_type
@@ -180,6 +183,8 @@ def read_legacy_public_image(
                     detail="处理版本不存在或链接已失效",
                 )
             key = version.processed_path
+            if revision is not None:
+                cache_control = _IMMUTABLE_CACHE
         else:
             if image.current_version_number is not None:
                 raise HTTPException(
@@ -194,4 +199,4 @@ def read_legacy_public_image(
     else:
         raise HTTPException(status_code=400, detail="图片类型必须是 original 或 processed")
 
-    return _file_response(key, media_type, filename_for_response, _NO_CACHE)
+    return _file_response(key, media_type, filename_for_response, cache_control)

@@ -104,13 +104,13 @@ function getPublicPath(
   kind: ImageKind,
   revision?: string | null,
 ): string {
-  const imageId = encodeURIComponent(String(item.id));
+  // 公开业务 URL 禁止加入数据库图片 ID：用户需要在表格中按文件名数字自然递增编辑。
   const employeeId = encodeURIComponent(item.employee_id);
   const sku = encodeURIComponent(item.sku);
   const filename = encodeURIComponent(
     getFilenameWithoutExtension(item.original_filename),
   );
-  const base = `/api/public/images/${imageId}/${employeeId}/${sku}/${filename}/${kind}`;
+  const base = `/api/public/images/${employeeId}/${sku}/${filename}/${kind}`;
   if (kind === "original") return base;
 
   const resolvedRevision = revision ?? item.current_revision;

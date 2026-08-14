@@ -222,6 +222,9 @@ def test_public_url_without_image_id_reads_requested_version() -> None:
     )
     assert version_two.status_code == 200
     assert version_two.content == b"version-2"
+    assert version_two.headers["cache-control"] == (
+        "public, max-age=31536000, immutable"
+    )
     assert missing_version.status_code == 404
     assert missing_parameter.status_code == 422
 
@@ -230,10 +233,9 @@ def test_public_processed_url_rejects_invalid_or_conflicting_revision_parameters
     with Session(engine) as session:
         image = create_image(session, "008", processed=False)
         create_version(session, image)
-        image_id = image.id
 
     with TestClient(app) as client:
-        base_url = f"/api/public/images/{image_id}/E008/SKU/008/processed"
+        base_url = "/api/public/images/E008/SKU/008/processed"
         invalid = client.get(f"{base_url}?rev=ab1d")
         uppercase = client.get(f"{base_url}?rev=ABCD")
         conflicting = client.get(f"{base_url}?rev=abcd&v=1")

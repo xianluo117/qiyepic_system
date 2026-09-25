@@ -11,7 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_current_user
+from app.api.dependencies import get_current_user, get_upload_user
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.image import Image, ImageStatus
@@ -29,6 +29,8 @@ from app.schemas.image import (
 )
 from app.services.audit import add_operation_log
 from app.services.image_queries import apply_image_access_scope
+from app.services.image_reprocessing import reprocess
+from app.services.integration_images import accessible_image
 from app.services.thumbnail_service import ThumbnailService
 from app.storage.local import LocalStorage
 from worker.tasks.image_tasks import process_image
@@ -87,12 +89,7 @@ def _can_access_image(image: Image, user: User) -> bool:
 
 
 def _get_accessible_image(image_id: int, user: User, db: Session) -> Image:
-    image = db.get(Image, image_id)
-    if image is None:
-        raise HTTPException(status_code=404, detail="图片不存在")
-    if not _can_access_image(image, user):
-        raise HTTPException(status_code=403, detail="无权访问该图片")
-    return image
+    return accessible_image(db, user, image_id)
 
 
 def _get_manageable_image(image_id: int, user: User, db: Session) -> Image:
@@ -173,7 +170,7 @@ def upload_images(
     ratio_width: int = Form(..., gt=0, le=1000),
     ratio_height: int = Form(..., gt=0, le=1000),
     min_short_side_px: int = Form(..., gt=0, le=20000),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_upload_user),
     db: Session = Depends(get_db),
 ) -> UploadResponse:
     try:
@@ -385,66 +382,7 @@ def retry_image(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Image:
-    image = _get_manageable_image(image_id, current_user, db)
-    if image.status in {ImageStatus.PENDING, ImageStatus.PROCESSING}:
-        raise HTTPException(status_code=409, detail="图片任务正在处理中")
-    if image.current_version_number is None:
-        legacy_keys = {
-            _storage.build_key(
-                image.employee_id,
-                "processed",
-                image.sku,
-                get_processed_filename(image.original_filename),
-            ),
-            _storage.build_key(
-                image.employee_id,
-                "processed",
-                image.sku,
-                image.original_filename,
-            ),
-        }
-        for processed_key in legacy_keys:
-            if processed_key != image.processed_path:
-                _remove_incomplete_processed_file(processed_key)
-    image.target_ratio_width = payload.ratio_width
-    image.target_ratio_height = payload.ratio_height
-    image.min_short_side_px = payload.min_short_side_px
-    image.status = ImageStatus.PENDING
-    image.error_message = None
-    add_operation_log(
-        db,
-        category=LogCategory.PROCESSING,
-        action="retry_image",
-        status=LogStatus.INFO,
-        actor=current_user,
-        image_id=image.id,
-        target=f"{image.sku}/{image.original_filename}",
-        message=f"重新提交图片处理任务 {image.original_filename}",
-        details=(
-            f"ratio={payload.ratio_width}:{payload.ratio_height}, "
-            f"min_short_side={payload.min_short_side_px}"
-        ),
-    )
-    db.commit()
-    try:
-        process_image.delay(image.id)
-    except Exception as exc:
-        image.status = ImageStatus.FAILED
-        image.error_message = f"处理任务提交失败: {exc}"[:2000]
-        add_operation_log(
-            db,
-            category=LogCategory.PROCESSING,
-            action="enqueue_image",
-            status=LogStatus.FAILED,
-            actor=current_user,
-            image_id=image.id,
-            target=f"{image.sku}/{image.original_filename}",
-            message="无法提交图片重试任务",
-            details=str(exc),
-        )
-        db.commit()
-    db.refresh(image)
-    return image
+    return reprocess(db, current_user, image_id, payload)
 
 
 @router.delete("/{image_id}", status_code=status.HTTP_204_NO_CONTENT)

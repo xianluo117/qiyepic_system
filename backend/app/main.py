@@ -10,6 +10,8 @@ from app.api.router import api_router
 from app.core.config import settings
 from app.core.database import Base, SessionLocal, engine
 from app.core.security import hash_password
+from app.mcp.auth import IntegrationAuthMiddleware
+from app.mcp.server import mcp
 from app.models.user import User, UserRole
 
 
@@ -38,7 +40,12 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                 # 多个 Uvicorn Worker 首次并行启动时，只有一个负责创建管理员。
                 db.rollback()
 
-    yield
+    if settings.mcp_enabled:
+        mcp.streamable_http_app()  # SDK 在首次构建应用时初始化 session_manager。
+        async with mcp.session_manager.run():
+            yield
+    else:
+        yield
 
 
 app = FastAPI(
@@ -55,6 +62,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(api_router, prefix=settings.api_prefix)
+if settings.mcp_enabled:
+    app.mount("/mcp", IntegrationAuthMiddleware(mcp.streamable_http_app()))
 
 
 @app.get("/health", tags=["system"])

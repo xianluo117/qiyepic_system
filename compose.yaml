@@ -4,6 +4,8 @@ x-app-environment: &app-environment
   APP_NAME: ${APP_NAME:-简易图床系统}
   APP_ENV: ${APP_ENV:-production}
   DEBUG: ${DEBUG:-false}
+  MCP_ENABLED: ${MCP_ENABLED:-false}
+  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
   API_PREFIX: ${API_PREFIX:-/api}
   SECRET_KEY: ${SECRET_KEY:?请在根目录 .env 中配置 SECRET_KEY}
   ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-480}

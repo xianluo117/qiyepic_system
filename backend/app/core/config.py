@@ -1,7 +1,8 @@
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlsplit
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +20,8 @@ class Settings(BaseSettings):
     app_env: str = "development"
     debug: bool = False
     api_prefix: str = "/api"
+    mcp_enabled: bool = False
+    public_base_url: str = ""
 
     secret_key: str = Field(min_length=32)
     access_token_expire_minutes: int = 480
@@ -38,6 +41,22 @@ class Settings(BaseSettings):
     bootstrap_admin_username: str = Field(min_length=3, max_length=128)
     bootstrap_admin_password: str = Field(min_length=12, max_length=128)
     bootstrap_admin_employee_id: str = Field(min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_mcp_address(self) -> "Settings":
+        if not self.mcp_enabled:
+            return self
+        url = urlsplit(self.public_base_url)
+        if (
+            url.scheme not in {"http", "https"} or not url.hostname
+            or url.username or url.password or url.query or url.fragment
+            or url.path not in {"", "/"}
+        ):
+            raise ValueError("启用 MCP 必须设置有效的 PUBLIC_BASE_URL，仅包含协议与域名端口")
+        if self.app_env == "production" and url.scheme != "https":
+            raise ValueError("生产环境 MCP 必须使用 HTTPS 公开地址")
+        self.public_base_url = self.public_base_url.rstrip("/")
+        return self
 
     @property
     def database_url(self) -> str:

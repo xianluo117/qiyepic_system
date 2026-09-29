@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ElMessage } from "element-plus";
 import { computed, reactive, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 
 import { getApiError } from "@/services/api";
 import { useAuth } from "@/stores/auth";
@@ -14,6 +14,7 @@ const props = withDefaults(
 );
 
 const router = useRouter();
+const route = useRoute();
 const auth = useAuth();
 const loading = ref(false);
 const form = reactive({ username: "", password: "" });
@@ -34,7 +35,9 @@ async function submit(): Promise<void> {
       return;
     }
     ElMessage.success("登录成功");
-    await router.replace(isAdminPortal.value ? "/admin/images" : "/gallery");
+    await router.replace(isAdminPortal.value
+      ? (route.query.redirect === "/console" ? "/console" : "/admin/images")
+      : "/gallery");
   } catch (error) {
     ElMessage.error(getApiError(error));
   } finally {

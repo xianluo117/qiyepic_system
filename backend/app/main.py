@@ -15,6 +15,9 @@ from app.mcp.server import mcp
 from app.models.user import User, UserRole
 
 
+from app.services.mcp_config import initialize_config
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     settings.image_root.mkdir(parents=True, exist_ok=True)
@@ -40,11 +43,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                 # 多个 Uvicorn Worker 首次并行启动时，只有一个负责创建管理员。
                 db.rollback()
 
-    if settings.mcp_enabled:
-        mcp.streamable_http_app()  # SDK 在首次构建应用时初始化 session_manager。
-        async with mcp.session_manager.run():
-            yield
-    else:
+    with SessionLocal() as db:
+        initialize_config(db)
+    mcp.streamable_http_app()
+    async with mcp.session_manager.run():
         yield
 
 
@@ -62,8 +64,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(api_router, prefix=settings.api_prefix)
-if settings.mcp_enabled:
-    app.mount("/mcp", IntegrationAuthMiddleware(mcp.streamable_http_app()))
+app.mount("/mcp", IntegrationAuthMiddleware(mcp.streamable_http_app()))
 
 
 @app.get("/health", tags=["system"])

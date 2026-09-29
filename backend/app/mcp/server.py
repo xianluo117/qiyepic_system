@@ -1,7 +1,6 @@
 """Streamable HTTP 图床 MCP 工具。文件上传由 Agent 本地客户端调用 API。"""
 
 from typing import Any
-from urllib.parse import urlsplit
 
 from fastapi import HTTPException
 from mcp.server.fastmcp import Context
@@ -18,16 +17,14 @@ from app.schemas.image import ImageResponse, ImageVersionResponse
 from app.services.integration_images import accessible_image, image_links, image_page
 from app.services.integration_tokens import resolve_token
 
-_public_url = urlsplit(settings.public_base_url)
 mcp = ImageMCP(
     "图床集成", stateless_http=True, json_response=True,
     streamable_http_path="/",
     instructions="审查本地图片后用本地上传工具调用 API；本服务提供状态和链接查询。",
     transport_security=TransportSecuritySettings(
-        enable_dns_rebinding_protection=True,
-        allowed_hosts=[_public_url.netloc] if _public_url.netloc else ["localhost", "127.0.0.1"],
-        allowed_origins=[f"{_public_url.scheme}://{_public_url.netloc}"]
-        if _public_url.netloc else [],
+        # 外层 IntegrationAuthMiddleware 按数据库快照执行 Host/Origin 校验，
+        # 避免 SDK 静态白名单在控制台修改域名后继续拒绝新域名。
+        enable_dns_rebinding_protection=False,
     ),
 )
 
@@ -97,13 +94,15 @@ def get_image_links(
 ) -> dict[str, Any]:
     """取得原图和指定版本链接；省略版本号时返回当前处理版本。链接无需鉴权。"""
     def run():
-        if not settings.public_base_url:
+        request = ctx.request_context.request
+        public_base_url = getattr(request.state, "mcp_public_base_url", "") if request else ""
+        if not public_base_url:
             return {"error": {"status": 503, "message": "尚未配置公开访问地址"}}
         with SessionLocal() as db:
             image = accessible_image(db, _actor(db, "images:read", ctx), image_id)
             if version_number is not None and version_number < 1:
                 raise HTTPException(status_code=422, detail="版本号必须大于 0")
-            return image_links(db, image, settings.public_base_url, version_number)
+            return image_links(db, image, public_base_url, version_number)
     return _safe(run)
 
 

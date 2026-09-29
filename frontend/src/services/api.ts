@@ -18,9 +18,9 @@ apiClient.interceptors.response.use(
   (error: unknown) => {
     if (axios.isAxiosError(error) && error.response?.status === 401) {
       localStorage.removeItem("access_token");
-      const loginPath = window.location.pathname.startsWith("/admin")
-        ? "/admin"
-        : "/";
+      const loginPath = window.location.pathname === "/console"
+        ? "/admin?redirect=/console"
+        : window.location.pathname.startsWith("/admin") ? "/admin" : "/";
       if (window.location.pathname !== loginPath) {
         window.location.href = loginPath;
       }

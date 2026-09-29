@@ -73,6 +73,12 @@ const router = createRouter({
       props: { portal: "admin" },
     },
     { path: "/login", redirect: "/" },
+    {
+      path: "/console",
+      name: "mcp-console",
+      component: () => import("@/views/console/ConsoleView.vue"),
+      meta: { requiresAuth: true, adminOnly: true },
+    },
     ...employeeRoutes,
     ...adminRoutes,
     { path: "/:pathMatch(.*)*", redirect: "/" },
@@ -81,8 +87,9 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   const auth = useAuth();
-  const isAdminPortal = to.path.startsWith("/admin");
-  const loginPath = isAdminPortal ? "/admin" : "/";
+  const isConsole = to.path === "/console";
+  const isAdminPortal = to.path.startsWith("/admin") || isConsole;
+  const loginPath = isConsole ? "/admin?redirect=/console" : isAdminPortal ? "/admin" : "/";
 
   if (to.meta.requiresAuth && !auth.isLoggedIn.value) return loginPath;
   if (auth.isLoggedIn.value && !auth.user.value) {
@@ -97,7 +104,7 @@ router.beforeEach(async (to) => {
   if (to.meta.employeeOnly && auth.isAdmin.value) return "/admin/images";
   if (to.meta.supervisorOnly && !auth.isSupervisor.value) return "/gallery";
   if (to.name === "admin-login" && auth.isLoggedIn.value) {
-    return auth.isAdmin.value ? "/admin/images" : "/gallery";
+    return auth.isAdmin.value ? (to.query.redirect === "/console" ? "/console" : "/admin/images") : "/gallery";
   }
   if (to.name === "employee-login" && auth.isLoggedIn.value) {
     return auth.isAdmin.value ? "/admin/images" : "/gallery";

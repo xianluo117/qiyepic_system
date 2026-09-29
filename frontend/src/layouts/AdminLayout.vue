@@ -26,6 +26,7 @@ async function logout(): Promise<void> {
         <el-menu-item index="/admin/images">全部图片</el-menu-item>
         <el-menu-item index="/admin/users">账号管理</el-menu-item>
         <el-menu-item index="/admin/logs">系统日志</el-menu-item>
+        <el-menu-item index="/console">MCP 控制台</el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>

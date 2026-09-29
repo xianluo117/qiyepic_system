@@ -3,7 +3,7 @@
 from collections.abc import Callable
 from urllib.parse import urlsplit
 
-from app.core.config import settings
+from app.services.mcp_config import read_config
 from app.core.database import SessionLocal
 from app.services.integration_tokens import resolve_token
 
@@ -17,12 +17,21 @@ class IntegrationAuthMiddleware:
             await self.app(scope, receive, send)
             return
         headers = {key.lower(): value for key, value in scope.get("headers", [])}
-        # Host/Origin 使用部署时配置的公开域名校验，防止 DNS rebinding 和跨站调用。
-        if settings.public_base_url:
-            expected = urlsplit(settings.public_base_url).netloc.lower()
+        with SessionLocal() as db:
+            config = read_config(db)
+        if not config.enabled:
+            await send({"type": "http.response.start", "status": 503, "headers": [
+                (b"content-type", b"application/json"),
+            ]})
+            await send({"type": "http.response.body", "body": b'{"error":"mcp_disabled"}'})
+            return
+        scope.setdefault("state", {})["mcp_public_base_url"] = config.public_base_url
+        # 每次请求使用同一配置快照，避免旧进程继续接受旧域名。
+        if config.public_base_url:
+            expected = urlsplit(config.public_base_url).netloc.lower()
             host = headers.get(b"host", b"").decode("ascii", errors="ignore").lower()
             origin = headers.get(b"origin", b"").decode("ascii", errors="ignore")
-            if host != expected or (origin and urlsplit(origin).netloc.lower() != expected):
+            if host != expected or (origin and origin.lower() != config.public_base_url.lower()):
                 await send({"type": "http.response.start", "status": 403, "headers": []})
                 await send({"type": "http.response.body", "body": b""})
                 return

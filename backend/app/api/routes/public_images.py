@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -41,7 +41,7 @@ def _file_response(
     media_type: str,
     filename: str,
     cache_control: str,
-) -> FileResponse | StreamingResponse:
+) -> Response:
     return image_response(
         _storage,
         key,
@@ -56,7 +56,7 @@ def _file_response(
 def read_public_thumbnail(
     image_id: int,
     db: Session = Depends(get_db),
-) -> FileResponse | StreamingResponse:
+) -> Response:
     image = db.get(Image, image_id)
     if image is None:
         raise HTTPException(status_code=404, detail="公开图片不存在或链接已失效")
@@ -104,7 +104,7 @@ def read_versioned_public_image(
     revision: str | None = Query(default=None, alias="rev"),
     legacy_version_number: int | None = Query(default=None, alias="v", ge=1),
     db: Session = Depends(get_db),
-) -> FileResponse | StreamingResponse:
+) -> Response:
     image = db.get(Image, image_id)
     if image is None:
         raise HTTPException(status_code=404, detail="公开图片不存在或链接已失效")
@@ -148,7 +148,7 @@ def read_legacy_public_image(
     revision: str | None = Query(default=None, alias="rev"),
     legacy_version_number: int | None = Query(default=None, alias="v", ge=1),
     db: Session = Depends(get_db),
-) -> FileResponse | StreamingResponse:
+) -> Response:
     candidates = db.scalars(
         select(Image).where(
             Image.employee_id == employee_id,

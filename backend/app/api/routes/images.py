@@ -3,8 +3,7 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from PIL import Image as PillowImage
 from PIL import UnidentifiedImageError
 from sqlalchemy import func, select
@@ -304,7 +303,7 @@ def download_image(
     kind: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> FileResponse | StreamingResponse:
+) -> Response:
     image = _get_accessible_image(image_id, current_user, db)
     if kind == "original":
         key = image.original_path
@@ -351,7 +350,7 @@ def download_image_version(
     version_number: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> FileResponse | StreamingResponse:
+) -> Response:
     image = _get_accessible_image(image_id, current_user, db)
     version = db.scalar(
         select(ImageVersion).where(

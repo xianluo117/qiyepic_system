@@ -25,6 +25,7 @@ RUN python -m pip install --upgrade pip \
     && python -m pip install -r requirements.txt
 
 COPY backend/ ./
+COPY tools/migrate_images_to_cos.py /app/tools/migrate_images_to_cos.py
 COPY deploy/docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=frontend-builder /build/frontend/dist/ /usr/share/nginx/html/
 

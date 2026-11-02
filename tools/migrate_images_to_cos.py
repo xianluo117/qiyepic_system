@@ -40,9 +40,14 @@ def main() -> None:
             )
 
     uploaded = 0
+    existing = 0
     total_bytes = 0
     missing_keys: list[str] = []
     for key in sorted(keys):
+        if target.exists(key):
+            existing += 1
+            print(f"exists {key}")
+            continue
         local_path = source.get_local_path(key)
         if not local_path.is_file():
             missing_keys.append(key)
@@ -52,7 +57,10 @@ def main() -> None:
         total_bytes += local_path.stat().st_size
         print(f"uploaded {key}")
 
-    print(f"迁移结束：成功上传 {uploaded} 个对象，{total_bytes} 字节；缺失跳过 {len(missing_keys)} 个对象")
+    print(
+        f"迁移结束：成功上传 {uploaded} 个对象，{total_bytes} 字节；"
+        f"COS 已存在跳过 {existing} 个对象；缺失跳过 {len(missing_keys)} 个对象"
+    )
     if missing_keys:
         print("缺失文件清单（相对于本地图片根目录）：")
         for key in missing_keys:

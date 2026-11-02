@@ -24,10 +24,12 @@ class CosStorage(Storage):
         return self.client.get_object(Bucket=self.bucket, Key=key)["Body"].get_raw_stream()
 
     def exists(self, key: str) -> bool:
+        from qcloud_cos.cos_exception import CosServiceError
+
         try:
             self.client.head_object(Bucket=self.bucket, Key=key)
-        except Exception as exc:
-            if getattr(exc, "status_code", None) == 404:
+        except CosServiceError as exc:
+            if exc.get_status_code() == 404:
                 return False
             raise
         return True

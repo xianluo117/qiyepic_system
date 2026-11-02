@@ -33,6 +33,11 @@ class Settings(BaseSettings):
 
     redis_url: str = "redis://127.0.0.1:6379/0"
     task_always_eager: bool = False
+    storage_backend: str = "local"
+    cos_secret_id: str = ""
+    cos_secret_key: str = ""
+    cos_region: str = ""
+    cos_bucket: str = ""
     image_root: Path = Path("/data/image-system")
     max_upload_size_mb: int = 30
     allowed_image_formats: tuple[str, ...] = ("JPEG", "PNG", "WEBP")

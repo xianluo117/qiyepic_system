@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from PIL import Image as PillowImage
 from PIL import UnidentifiedImageError
 from sqlalchemy import func, select
@@ -28,15 +28,16 @@ from app.schemas.image import (
     UploadResponse,
 )
 from app.services.audit import add_operation_log
+from app.services.image_file_response import image_response
 from app.services.image_queries import apply_image_access_scope
 from app.services.image_reprocessing import reprocess
 from app.services.integration_images import accessible_image
 from app.services.thumbnail_service import ThumbnailService
-from app.storage.local import LocalStorage
+from app.storage.factory import create_storage
 from worker.tasks.image_tasks import process_image
 
 router = APIRouter()
-_storage = LocalStorage(settings.image_root)
+_storage = create_storage()
 _thumbnails = ThumbnailService(settings.image_root)
 _SKU_PATTERN = re.compile(r"^[^/\\\x00-\x1f]+$")
 
@@ -61,10 +62,8 @@ def _validate_sku(sku: str) -> str:
 
 
 def _remove_incomplete_processed_file(key: str) -> None:
-    """重试前清理可能由旧任务留下的处理图和临时文件。"""
-    path = _storage.get_local_path(key)
-    path.unlink(missing_ok=True)
-    path.with_name(f".{path.name}.processing").unlink(missing_ok=True)
+    """重试前清理可能由旧任务留下的处理图。"""
+    _storage.delete(key)
 
 
 def _check_image(content: bytes) -> tuple[str, int, int]:
@@ -305,7 +304,7 @@ def download_image(
     kind: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> FileResponse:
+) -> FileResponse | StreamingResponse:
     image = _get_accessible_image(image_id, current_user, db)
     if kind == "original":
         key = image.original_path
@@ -320,14 +319,12 @@ def download_image(
     else:
         raise HTTPException(status_code=400, detail="文件类型必须是 original 或 processed")
 
-    path = _storage.get_local_path(key)
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="图片文件不存在")
-    return FileResponse(
-        path=path,
-        media_type=media_type,
-        filename=filename,
-        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    return image_response(
+        _storage,
+        key,
+        media_type,
+        filename,
+        "no-store, no-cache, must-revalidate, max-age=0",
     )
 
 
@@ -354,7 +351,7 @@ def download_image_version(
     version_number: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> FileResponse:
+) -> FileResponse | StreamingResponse:
     image = _get_accessible_image(image_id, current_user, db)
     version = db.scalar(
         select(ImageVersion).where(
@@ -364,14 +361,12 @@ def download_image_version(
     )
     if version is None:
         raise HTTPException(status_code=404, detail="处理版本不存在")
-    path = _storage.get_local_path(version.processed_path)
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="处理版本文件不存在")
-    return FileResponse(
-        path=path,
-        media_type="image/jpeg",
-        filename=get_processed_filename(image.original_filename),
-        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    return image_response(
+        _storage,
+        version.processed_path,
+        "image/jpeg",
+        get_processed_filename(image.original_filename),
+        "no-store, no-cache, must-revalidate, max-age=0",
     )
 
 

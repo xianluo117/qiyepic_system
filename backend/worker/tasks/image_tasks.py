@@ -1,4 +1,6 @@
+import tempfile
 from datetime import datetime
+from pathlib import Path
 
 from celery.utils.log import get_task_logger
 from sqlalchemy import func, select
@@ -11,7 +13,7 @@ from app.models.operation_log import LogCategory, LogStatus
 from app.processing.paths import get_versioned_processed_filename
 from app.processing.processor import ImageProcessor
 from app.services.audit import add_operation_log
-from app.storage.local import LocalStorage
+from app.storage.factory import create_storage
 from worker.celery_app import celery_app
 
 logger = get_task_logger(__name__)
@@ -26,7 +28,7 @@ logger = get_task_logger(__name__)
 def process_image(self, image_id: int) -> dict[str, int | bool | str]:
     """读取原图，依次执行裁剪、像素处理和 2 MiB 限制压缩。"""
 
-    storage = LocalStorage(settings.image_root)
+    storage = create_storage()
     processor = ImageProcessor()
 
     with SessionLocal() as db:
@@ -66,13 +68,25 @@ def process_image(self, image_id: int) -> dict[str, int | bool | str]:
             ),
         )
         try:
-            result = processor.process(
-                source_path=storage.get_local_path(image.original_path),
-                target_path=storage.get_local_path(processed_key),
-                ratio_width=image.target_ratio_width,
-                ratio_height=image.target_ratio_height,
-                min_short_side_px=image.min_short_side_px,
-            )
+            with tempfile.TemporaryDirectory() as temporary_dir:
+                temporary_root = Path(temporary_dir)
+                source_path = storage.download_to_path(
+                    image.original_path,
+                    temporary_root / "original" / image.original_filename,
+                )
+                target_path = temporary_root / "processed" / get_versioned_processed_filename(
+                    image.original_filename,
+                    image.id,
+                    version_number,
+                )
+                result = processor.process(
+                    source_path=source_path,
+                    target_path=target_path,
+                    ratio_width=image.target_ratio_width,
+                    ratio_height=image.target_ratio_height,
+                    min_short_side_px=image.min_short_side_px,
+                )
+                storage.upload_from_path(processed_key, target_path, "image/jpeg")
 
             version = ImageVersion(
                 image_id=image.id,
@@ -141,11 +155,7 @@ def process_image(self, image_id: int) -> dict[str, int | bool | str]:
         except Exception as exc:
             db.rollback()
             try:
-                storage.get_local_path(processed_key).unlink(missing_ok=True)
-                processing_path = storage.get_local_path(processed_key)
-                processing_path.with_name(f".{processing_path.name}.processing").unlink(
-                    missing_ok=True,
-                )
+                storage.delete(processed_key)
             except (OSError, ValueError):
                 logger.exception("清理失败处理图时发生异常，image_id=%s", image_id)
             image = db.get(Image, image_id)

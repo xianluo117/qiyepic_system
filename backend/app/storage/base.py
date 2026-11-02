@@ -1,13 +1,26 @@
+import re
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import BinaryIO
 
+_SAFE_SEGMENT = re.compile(r"^[^/\\\x00-\x1f]+$")
+
 
 class Storage(ABC):
-    """图片存储统一接口。"""
+    """图片对象存储统一接口。"""
+
+    @classmethod
+    def build_key(cls, employee_id: str, image_type: str, sku: str, filename: str) -> str:
+        if image_type not in {"original", "processed"}:
+            raise ValueError("图片目录类型必须是 original 或 processed")
+
+        segments = (employee_id, image_type, sku, Path(filename).name)
+        for segment in segments:
+            Storage.validate_segment(segment)
+        return "/".join(segments)
 
     @abstractmethod
-    def save(self, key: str, source: BinaryIO) -> Path:
+    def save(self, key: str, source: BinaryIO) -> None:
         raise NotImplementedError
 
     @abstractmethod
@@ -27,5 +40,14 @@ class Storage(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_local_path(self, key: str) -> Path:
+    def download_to_path(self, key: str, target: Path) -> Path:
         raise NotImplementedError
+
+    @abstractmethod
+    def upload_from_path(self, key: str, source: Path, content_type: str = "") -> None:
+        raise NotImplementedError
+
+    @classmethod
+    def validate_segment(cls, segment: str) -> None:
+        if not segment or segment in {".", ".."} or not _SAFE_SEGMENT.fullmatch(segment):
+            raise ValueError(f"非法路径字段: {segment!r}")

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -10,12 +10,13 @@ from app.core.database import get_db
 from app.models.image import Image
 from app.models.image_version import ImageVersion
 from app.processing.paths import get_processed_filename
+from app.services.image_file_response import image_response
 from app.services.thumbnail_service import ThumbnailService
 from app.services.version_revision import revision_to_version_number
-from app.storage.local import LocalStorage
+from app.storage.factory import create_storage
 
 router = APIRouter()
-_storage = LocalStorage(settings.image_root)
+_storage = create_storage()
 _thumbnails = ThumbnailService(settings.image_root)
 _IMMUTABLE_CACHE = "public, max-age=31536000, immutable"
 _NO_CACHE = "no-store, no-cache, must-revalidate, max-age=0"
@@ -40,16 +41,14 @@ def _file_response(
     media_type: str,
     filename: str,
     cache_control: str,
-) -> FileResponse:
-    path = _storage.get_local_path(key)
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="图片文件不存在")
-    return FileResponse(
-        path=path,
-        media_type=media_type,
-        filename=filename,
-        content_disposition_type="inline",
-        headers={"Cache-Control": cache_control},
+) -> FileResponse | StreamingResponse:
+    return image_response(
+        _storage,
+        key,
+        media_type,
+        filename,
+        cache_control,
+        inline=True,
     )
 
 
@@ -57,16 +56,22 @@ def _file_response(
 def read_public_thumbnail(
     image_id: int,
     db: Session = Depends(get_db),
-) -> FileResponse:
+) -> FileResponse | StreamingResponse:
     image = db.get(Image, image_id)
     if image is None:
         raise HTTPException(status_code=404, detail="公开图片不存在或链接已失效")
 
-    source_path = _storage.get_local_path(image.original_path)
-    if not source_path.is_file():
-        raise HTTPException(status_code=404, detail="图片文件不存在")
+    if _thumbnails.get_path(image.id).is_file():
+        thumbnail_path = _thumbnails.get_path(image.id)
+    else:
+        import tempfile
 
-    thumbnail_path = _thumbnails.get_or_create(image.id, source_path)
+        with tempfile.TemporaryDirectory() as temporary_dir:
+            source_path = _storage.download_to_path(
+                image.original_path,
+                Path(temporary_dir) / image.original_filename,
+            )
+            thumbnail_path = _thumbnails.get_or_create(image.id, source_path)
     return FileResponse(
         path=thumbnail_path,
         media_type="image/jpeg",
@@ -99,7 +104,7 @@ def read_versioned_public_image(
     revision: str | None = Query(default=None, alias="rev"),
     legacy_version_number: int | None = Query(default=None, alias="v", ge=1),
     db: Session = Depends(get_db),
-) -> FileResponse:
+) -> FileResponse | StreamingResponse:
     image = db.get(Image, image_id)
     if image is None:
         raise HTTPException(status_code=404, detail="公开图片不存在或链接已失效")
@@ -143,7 +148,7 @@ def read_legacy_public_image(
     revision: str | None = Query(default=None, alias="rev"),
     legacy_version_number: int | None = Query(default=None, alias="v", ge=1),
     db: Session = Depends(get_db),
-) -> FileResponse:
+) -> FileResponse | StreamingResponse:
     candidates = db.scalars(
         select(Image).where(
             Image.employee_id == employee_id,

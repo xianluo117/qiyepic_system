@@ -11,7 +11,7 @@ from app.processing.paths import get_processed_filename
 from app.schemas.image import ImageReprocessRequest
 from app.services.audit import add_operation_log
 from app.services.integration_images import accessible_image
-from app.storage.local import LocalStorage
+from app.storage.factory import create_storage
 from worker.tasks.image_tasks import process_image
 
 
@@ -23,14 +23,12 @@ def reprocess(
         raise HTTPException(status_code=403, detail="只能修改自己上传的图片")
     if image.status in {ImageStatus.PENDING, ImageStatus.PROCESSING}:
         raise HTTPException(status_code=409, detail="图片任务正在处理中")
-    storage = LocalStorage(settings.image_root)
+    storage = create_storage()
     if image.current_version_number is None:
         for filename in {get_processed_filename(image.original_filename), image.original_filename}:
             key = storage.build_key(image.employee_id, "processed", image.sku, filename)
             if key != image.processed_path:
-                path = storage.get_local_path(key)
-                path.unlink(missing_ok=True)
-                path.with_name(f".{path.name}.processing").unlink(missing_ok=True)
+                storage.delete(key)
     image.target_ratio_width = payload.ratio_width
     image.target_ratio_height = payload.ratio_height
     image.min_short_side_px = payload.min_short_side_px

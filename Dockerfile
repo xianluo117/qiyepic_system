@@ -26,6 +26,7 @@ RUN python -m pip install --upgrade pip \
 
 COPY backend/ ./
 COPY tools/migrate_images_to_cos.py /app/tools/migrate_images_to_cos.py
+COPY tools/cleanup_local_images.py /app/tools/cleanup_local_images.py
 COPY deploy/docker/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=frontend-builder /build/frontend/dist/ /usr/share/nginx/html/
 

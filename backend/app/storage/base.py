@@ -43,6 +43,16 @@ class Storage(ABC):
     def download_to_path(self, key: str, target: Path) -> Path:
         raise NotImplementedError
 
+    def get_download_url(
+        self,
+        key: str,
+        media_type: str,
+        filename: str,
+        cache_control: str,
+        inline: bool = False,
+    ) -> str | None:
+        return None
+
     @abstractmethod
     def upload_from_path(self, key: str, source: Path, content_type: str = "") -> None:
         raise NotImplementedError

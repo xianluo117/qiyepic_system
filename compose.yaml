@@ -76,6 +76,13 @@ services:
       CELERY_CONCURRENCY: ${CELERY_CONCURRENCY:-2}
       CELERY_LOG_LEVEL: ${CELERY_LOG_LEVEL:-INFO}
 
+  storage-sync:
+    <<: *app-service
+    command: ['storage-sync']
+    depends_on:
+      api:
+        condition: service_healthy
+
   mysql:
     image: mysql:8.4
     restart: unless-stopped

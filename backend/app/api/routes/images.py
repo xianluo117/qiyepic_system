@@ -1,4 +1,5 @@
 import io
+from contextlib import ExitStack
 import re
 from pathlib import Path
 from typing import Literal
@@ -33,6 +34,7 @@ from app.services.image_reprocessing import reprocess
 from app.services.integration_images import accessible_image
 from app.services.thumbnail_service import ThumbnailService
 from app.storage.factory import create_storage
+from app.storage.fallback import FallbackStorage
 from worker.tasks.image_tasks import process_image
 
 router = APIRouter()
@@ -181,6 +183,8 @@ def upload_images(
 
     for upload in files:
         original_key: str | None = None
+        saved = False
+        locks = ExitStack()
         try:
             filename, normalized_filename = _normalize_filename(upload.filename)
             content = upload.file.read(max_bytes + 1)
@@ -197,10 +201,22 @@ def upload_images(
                 safe_sku,
                 filename,
             )
-            if _storage.exists(original_key):
+            if isinstance(_storage, FallbackStorage):
+                locks.enter_context(_storage.lock(original_key))
+                # 结束鉴权查询开启的快照，锁内读取其他进程最新提交的记录。
+                db.rollback()
+            existing = db.scalar(select(Image.id).where(
+                Image.employee_id == current_user.employee_id,
+                Image.sku == safe_sku,
+                Image.normalized_filename == normalized_filename,
+            ))
+            exists = (_storage.exists_for_upload if isinstance(_storage, FallbackStorage)
+                      else _storage.exists)
+            if existing is not None or exists(original_key):
                 raise FileExistsError("同一员工和货号下已存在同名文件，请修改本地文件名")
 
             _storage.save(original_key, io.BytesIO(content))
+            saved = True
             image = Image(
                 owner_id=current_user.id,
                 employee_id=current_user.employee_id,
@@ -231,6 +247,7 @@ def upload_images(
                 details=f"ratio={ratio_width}:{ratio_height}, min_short_side={min_short_side_px}",
             )
             db.commit()
+            locks.close()
             db.refresh(image)
 
             try:
@@ -260,7 +277,7 @@ def upload_images(
             )
         except (ValueError, FileExistsError) as exc:
             db.rollback()
-            if original_key and _storage.exists(original_key):
+            if saved and original_key:
                 existing = db.scalar(select(Image).where(Image.original_path == original_key))
                 if existing is None:
                     _storage.delete(original_key)
@@ -273,8 +290,10 @@ def upload_images(
             )
         except IntegrityError:
             db.rollback()
-            if original_key:
-                _storage.delete(original_key)
+            if saved and original_key:
+                existing = db.scalar(select(Image.id).where(Image.original_path == original_key))
+                if existing is None:
+                    _storage.delete(original_key)
             results.append(
                 UploadFileResult(
                     filename=upload.filename or "未命名文件",
@@ -283,6 +302,7 @@ def upload_images(
                 ),
             )
         finally:
+            locks.close()
             upload.file.close()
 
     return UploadResponse(results=results)
@@ -386,6 +406,16 @@ def delete_image(
     db: Session = Depends(get_db),
 ) -> None:
     image = _get_manageable_image(image_id, current_user, db)
+    with ExitStack() as locks:
+        if isinstance(_storage, FallbackStorage):
+            locks.enter_context(_storage.lock(image.original_path))
+            db.rollback()
+            image = _get_manageable_image(image_id, current_user, db)
+        _delete_image_record(image, current_user, db)
+
+
+def _delete_image_record(image: Image, current_user: User, db: Session) -> None:
+    image_id = image.id
     original_path = image.original_path
     processed_paths = {item.processed_path for item in image.versions}
     if image.processed_path:
@@ -400,9 +430,14 @@ def delete_image(
         target=f"{image.sku}/{image.original_filename}",
         message=f"删除图片 {image.original_filename}",
     )
-    db.delete(image)
-    db.commit()
-    _storage.delete(original_path)
+    with ExitStack() as locks:
+        paths = sorted({original_path, *processed_paths})
+        if isinstance(_storage, FallbackStorage):
+            for path in paths:
+                locks.enter_context(_storage.lock(path))
+                _storage.queue_delete(db, path)
+        db.delete(image)
+        db.commit()
+        for path in paths:
+            _storage.delete(path)
     _thumbnails.delete(image_id)
-    for processed_path in processed_paths:
-        _storage.delete(processed_path)

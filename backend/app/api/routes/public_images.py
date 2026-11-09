@@ -14,6 +14,7 @@ from app.services.image_file_response import image_response
 from app.services.thumbnail_service import ThumbnailService
 from app.services.version_revision import revision_to_version_number
 from app.storage.factory import create_storage
+from app.storage.fallback import StorageUnavailable
 
 router = APIRouter()
 _storage = create_storage()
@@ -67,10 +68,15 @@ def read_public_thumbnail(
         import tempfile
 
         with tempfile.TemporaryDirectory() as temporary_dir:
-            source_path = _storage.download_to_path(
-                image.original_path,
-                Path(temporary_dir) / image.original_filename,
-            )
+            try:
+                source_path = _storage.download_to_path(
+                    image.original_path,
+                    Path(temporary_dir) / image.original_filename,
+                )
+            except StorageUnavailable as exc:
+                raise HTTPException(status_code=503, detail=str(exc)) from exc
+            except FileNotFoundError as exc:
+                raise HTTPException(status_code=404, detail="图片文件不存在") from exc
             thumbnail_path = _thumbnails.get_or_create(image.id, source_path)
     return FileResponse(
         path=thumbnail_path,

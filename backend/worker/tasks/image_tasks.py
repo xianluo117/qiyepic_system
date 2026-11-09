@@ -1,4 +1,5 @@
 import tempfile
+from contextlib import ExitStack, nullcontext
 from datetime import datetime
 from pathlib import Path
 
@@ -13,7 +14,9 @@ from app.models.operation_log import LogCategory, LogStatus
 from app.processing.paths import get_versioned_processed_filename
 from app.processing.processor import ImageProcessor
 from app.services.audit import add_operation_log
+from app.services.thumbnail_service import ThumbnailService
 from app.storage.factory import create_storage
+from app.storage.fallback import FallbackStorage, referenced
 from worker.celery_app import celery_app
 
 logger = get_task_logger(__name__)
@@ -26,10 +29,20 @@ logger = get_task_logger(__name__)
     retry_kwargs={"max_retries": 3},
 )
 def process_image(self, image_id: int) -> dict[str, int | bool | str]:
-    """读取原图，依次执行裁剪、像素处理和 2 MiB 限制压缩。"""
-
     storage = create_storage()
+    with SessionLocal() as db:
+        image = db.get(Image, image_id)
+        if image is None:
+            raise ValueError(f"图片记录不存在: {image_id}")
+        original_key = image.original_path
+    with storage.lock(original_key) if isinstance(storage, FallbackStorage) else nullcontext():
+        return _process_image(image_id, storage)
+
+
+def _process_image(image_id, storage):
+    """读取原图，依次执行裁剪、像素处理和 2 MiB 限制压缩。"""
     processor = ImageProcessor()
+    thumbnails = ThumbnailService(settings.image_root)
 
     with SessionLocal() as db:
         image = db.get(Image, image_id)
@@ -67,7 +80,12 @@ def process_image(self, image_id: int) -> dict[str, int | bool | str]:
                 version_number,
             ),
         )
+        locks = ExitStack()
+        saved = False
+        committed = False
         try:
+            if isinstance(storage, FallbackStorage):
+                locks.enter_context(storage.lock(processed_key))
             with tempfile.TemporaryDirectory() as temporary_dir:
                 temporary_root = Path(temporary_dir)
                 source_path = storage.download_to_path(
@@ -86,7 +104,12 @@ def process_image(self, image_id: int) -> dict[str, int | bool | str]:
                     ratio_height=image.target_ratio_height,
                     min_short_side_px=image.min_short_side_px,
                 )
+                try:
+                    thumbnails.get_or_create(image.id, source_path)
+                except Exception:
+                    pass
                 storage.upload_from_path(processed_key, target_path, "image/jpeg")
+                saved = True
 
             version = ImageVersion(
                 image_id=image.id,
@@ -136,9 +159,14 @@ def process_image(self, image_id: int) -> dict[str, int | bool | str]:
                 ).all()
             )
             expired_paths = [item.processed_path for item in expired_versions]
+            if isinstance(storage, FallbackStorage):
+                for path in sorted(expired_paths):
+                    locks.enter_context(storage.lock(path))
+                    storage.queue_delete(db, path)
             for item in expired_versions:
                 db.delete(item)
             db.commit()
+            committed = True
             for expired_path in expired_paths:
                 storage.delete(expired_path)
 
@@ -155,7 +183,8 @@ def process_image(self, image_id: int) -> dict[str, int | bool | str]:
         except Exception as exc:
             db.rollback()
             try:
-                storage.delete(processed_key)
+                if saved and not committed and not referenced(db, processed_key):
+                    storage.delete(processed_key)
             except (OSError, ValueError):
                 logger.exception("清理失败处理图时发生异常，image_id=%s", image_id)
             image = db.get(Image, image_id)
@@ -180,3 +209,5 @@ def process_image(self, image_id: int) -> dict[str, int | bool | str]:
                 db.commit()
             logger.exception("图片处理失败，image_id=%s", image_id)
             raise
+        finally:
+            locks.close()

@@ -3,10 +3,11 @@ from pathlib import Path
 from typing import BinaryIO
 
 from fastapi import HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 
 from app.storage.base import Storage
 from app.storage.local import LocalStorage
+from app.storage.fallback import StorageUnavailable
 
 
 class _ClosingIterator:
@@ -29,11 +30,26 @@ def image_response(
     filename: str,
     cache_control: str,
     inline: bool = False,
-) -> FileResponse | StreamingResponse:
-    if not storage.exists(key):
-        raise HTTPException(status_code=404, detail="图片文件不存在")
+) -> FileResponse | RedirectResponse | StreamingResponse:
+    try:
+        if not storage.exists(key):
+            raise HTTPException(status_code=404, detail="图片文件不存在")
+    except StorageUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="图片文件不存在") from exc
 
     headers = {"Cache-Control": cache_control}
+    if not isinstance(storage, LocalStorage):
+        try:
+            download_url = storage.get_download_url(
+                key, media_type, filename, cache_control, inline,
+            )
+            if download_url is not None:
+                return RedirectResponse(url=download_url, status_code=302, headers=headers)
+        except StorageUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     if isinstance(storage, LocalStorage):
         path = storage.get_local_path(key)
         return FileResponse(
@@ -44,7 +60,13 @@ def image_response(
             headers=headers,
         )
 
-    stream = storage.open(key)
+    try:
+        stream = storage.open(key)
+    except StorageUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="图片文件不存在") from exc
+
     if inline:
         headers["Content-Disposition"] = "inline"
     else:

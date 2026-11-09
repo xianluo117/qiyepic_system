@@ -35,6 +35,10 @@ case "${1:-api}" in
             --loglevel="${CELERY_LOG_LEVEL:-INFO}" \
             --concurrency="${CELERY_CONCURRENCY:-2}"
         ;;
+    storage-sync)
+        wait_for_database
+        exec python -m app.storage.sync
+        ;;
     web)
         exec nginx -g "daemon off;"
         ;;
